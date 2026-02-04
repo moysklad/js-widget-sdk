@@ -4,10 +4,13 @@
   "private": true,
   "description": "Widget SDK build setup",
   "scripts": {
-    "build": "rollup -c rollup.config.mjs"
+    "build": "rollup -c rollup.config.mjs",
+    "test": "jest"
   },
   "devDependencies": {
     "@rollup/plugin-terser": "0.4.4",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
     "rollup": "4.30.0"
   }
 }
