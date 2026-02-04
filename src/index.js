@@ -1,0 +1,1 @@
+import './WidgetSDKInstance.js';

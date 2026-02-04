@@ -1,0 +1,13 @@
+{
+  "name": "js-widget-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Widget SDK build setup",
+  "scripts": {
+    "build": "rollup -c rollup.config.mjs"
+  },
+  "devDependencies": {
+    "@rollup/plugin-terser": "0.4.4",
+    "rollup": "4.30.0"
+  }
+}
