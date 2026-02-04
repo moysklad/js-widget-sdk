@@ -98,7 +98,7 @@
                     try {
                         listener(message);
                     } catch (error) {
-                        this._log(() => `Listener error for ${name}: ${error.message}`, 'warn');
+                        this._log(`Listener error for ${name}: ${error.message}`, 'warn');
                     }
                 });
             }
@@ -231,7 +231,7 @@
 
                 target.postMessage(message, '*');
             } catch (error) {
-                this._log(() => `postMessage error for ${message.name || 'unknown'}: ${error.message}`, 'warn');
+                this._log(`postMessage error for ${message.name || 'unknown'}: ${error.message}`, 'warn');
             }
         }
 
