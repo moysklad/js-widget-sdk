@@ -217,7 +217,7 @@ describe('sendRequest and sendMessage', () => {
         global.parent = originalParent;
     });
 
-    test('sendRequest rejects when postMessage throws', async () => {
+    test('sendMessage log warn when postMessage throws', async () => {
         const postMessageSpy = jest
             .spyOn(window, 'postMessage')
             .mockImplementation(() => {
@@ -225,6 +225,32 @@ describe('sendRequest and sendMessage', () => {
             });
 
         const sdk = window.WidgetSDK.create({debug: true});
+        const logSpy = jest.spyOn(sdk, '_log');
+
+        sdk.sendMessage({
+            name: 'UpdateRequest',
+            updateState: {status: 'failed'},
+        });
+
+        expect(logSpy).toHaveBeenCalledWith(
+            'postMessage error for UpdateRequest: postMessage boom',
+            'warn',
+        );
+
+        postMessageSpy.mockRestore();
+        logSpy.mockRestore();
+    });
+
+    test('sendRequest rejects with warn when postMessage throws', async () => {
+        const postMessageSpy = jest
+            .spyOn(window, 'postMessage')
+            .mockImplementation(() => {
+                throw new Error('postMessage boom');
+            });
+
+        const sdk = window.WidgetSDK.create({debug: true});
+        const logSpy = jest.spyOn(sdk, '_log');
+
         const promise = sdk.sendRequest({
             name: 'UpdateRequest',
             updateState: {status: 'failed'},
@@ -232,8 +258,13 @@ describe('sendRequest and sendMessage', () => {
 
         await expect(promise).rejects.toThrow('postMessage boom');
         expect(sdk._pendingRequests.size).toBe(0);
+        expect(logSpy).toHaveBeenCalledWith(
+            'postMessage error for UpdateRequest: postMessage boom',
+            'warn',
+        );
 
         postMessageSpy.mockRestore();
+        logSpy.mockRestore();
     });
 });
 

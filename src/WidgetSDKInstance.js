@@ -211,6 +211,7 @@
 
                     target.postMessage(message, '*');
                 } catch (error) {
+                    this._log(`postMessage error for ${message.name || 'unknown'}: ${error.message}`, 'warn');
                     this._pendingRequests.delete(messageId);
 
                     reject(error);
