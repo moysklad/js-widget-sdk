@@ -1,8 +1,11 @@
 {
-  "name": "js-widget-sdk",
+  "name": "@moysklad/js-sdk-widget",
   "version": "0.1.0",
-  "private": true,
   "description": "Widget SDK build setup",
+  "main": "dist/widget.js",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "rollup -c rollup.config.mjs"
   },
