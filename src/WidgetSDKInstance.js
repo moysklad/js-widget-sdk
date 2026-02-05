@@ -98,7 +98,7 @@
                     try {
                         listener(message);
                     } catch (error) {
-                        this._log(() => `Listener error for ${name}: ${error.message}`, 'warn');
+                        this._log(`Listener error for ${name}: ${error.message}`, 'warn');
                     }
                 });
             }
@@ -197,21 +197,19 @@
          * @returns {Promise<Object>} Promise with response.
          */
         sendRequest(message = {}) {
-            const messageId = this._nextMessageId();
-
-            message.messageId = messageId;
-
+            message.messageId ??= this._nextMessageId();
             this._log(() => `SDK -> ${JSON.stringify(message)}`);
 
             return new Promise((resolve, reject) => {
-                this._pendingRequests.set(messageId, {resolve, reject});
+                this._pendingRequests.set(message.messageId, {resolve, reject});
 
                 try {
                     const target = typeof parent !== 'undefined' ? parent : global;
 
                     target.postMessage(message, '*');
                 } catch (error) {
-                    this._pendingRequests.delete(messageId);
+                    this._log(`postMessage error for ${message.name || 'unknown'}: ${error.message}`, 'warn');
+                    this._pendingRequests.delete(message.messageId);
 
                     reject(error);
                 }
@@ -221,9 +219,10 @@
         /**
          * Sends a message to host without waiting for a response.
          * @param {Object} message Message.
-         * @returns {void}
+         * @returns {Object} sent message
          */
         sendMessage(message = {}) {
+            message.messageId ??= this._nextMessageId();
             this._log(() => `SDK -> ${JSON.stringify(message)}`);
 
             try {
@@ -231,8 +230,9 @@
 
                 target.postMessage(message, '*');
             } catch (error) {
-                this._log(() => `postMessage error for ${message.name || 'unknown'}: ${error.message}`, 'warn');
+                this._log(`postMessage error for ${message.name || 'unknown'}: ${error.message}`, 'warn');
             }
+            return message;
         }
 
         /**
@@ -298,11 +298,12 @@
                 return null;
             }
 
-            const message = {name: 'OpenFeedback', correlationId: resolvedId};
+            const message = {
+                name: 'OpenFeedback',
+                correlationId: resolvedId
+            };
 
-            this.sendMessage(message);
-
-            return message;
+            return this.sendMessage(message);
         }
 
         /**
@@ -320,13 +321,12 @@
                 return null;
             }
 
-            const message = {name: 'SetDirty', messageId: this._nextMessageId()};
+            const message = {
+                name: 'SetDirty',
+                openMessageId: resolvedId
+            };
 
-            message.openMessageId = resolvedId;
-
-            this.sendMessage(message);
-
-            return message;
+            return this.sendMessage(message);
         }
 
         /**
@@ -335,13 +335,10 @@
          */
         clearDirty() {
             const message = {
-                name: 'ClearDirty',
-                messageId: this._nextMessageId()
+                name: 'ClearDirty'
             };
 
-            this.sendMessage(message);
-
-            return message;
+            return this.sendMessage(message);
         }
 
         /**
@@ -362,7 +359,6 @@
 
             const message = {
                 name: 'ValidationFeedback',
-                messageId: this._nextMessageId(),
                 correlationId: resolvedId,
                 valid: valid === undefined ? false : !!valid
             };
@@ -373,9 +369,7 @@
                 message.message = 'Invalid data';
             }
 
-            this.sendMessage(message);
-
-            return message;
+            return this.sendMessage(message);
         }
 
         /**
@@ -385,7 +379,10 @@
          * @returns {Promise<Object>} Promise with response.
          */
         showPopup(popupName, popupParameters) {
-            const message = {name: 'ShowPopupRequest', popupName};
+            const message = {
+                name: 'ShowPopupRequest',
+                popupName
+            };
 
             if (popupParameters !== undefined) {
                 message.popupParameters = popupParameters;
@@ -401,17 +398,14 @@
          */
         closePopup(popupResponse) {
             const message = {
-                name: 'ClosePopup',
-                messageId: this._nextMessageId()
+                name: 'ClosePopup'
             };
 
             if (popupResponse !== undefined) {
                 message.popupResponse = popupResponse;
             }
 
-            this.sendMessage(message);
-
-            return message;
+            return this.sendMessage(message);
         }
 
         /**
