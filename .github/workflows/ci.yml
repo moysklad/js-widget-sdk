@@ -15,6 +15,7 @@ jobs:
         with:
           node-version: 24
 
+      - run: npm i -g npm@10.8.2
       - run: npm install
       - run: npm run build
       - run: npm test
