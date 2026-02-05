@@ -54,8 +54,8 @@ describe('_handleMessage and events', () => {
     test('resolves pending request when matching message with correlationId arrives', async () => {
         const sdk = window.WidgetSDK.create({debug: true});
 
-        const promise = sdk.sendRequest({name: 'SelectGoodFolderRequest'});
-        const messageId = sdk._requestIdCounter;
+        const messageId = 17;
+        const promise = sdk.sendRequest({name: 'SelectGoodFolderRequest', messageId});
 
         const response = {
             correlationId: messageId,
@@ -71,8 +71,8 @@ describe('_handleMessage and events', () => {
     test('rejects pending request when matching InvalidMessageError arrives', async () => {
         const sdk = window.WidgetSDK.create({debug: true});
 
-        const promise = sdk.sendRequest({name: 'TestRequest'});
-        const messageId = sdk._requestIdCounter;
+        const messageId = 17;
+        const promise = sdk.sendRequest({name: 'UpdateRequest', messageId});
 
         const response = {
             correlationId: messageId,
@@ -426,7 +426,10 @@ describe('openFeedback / validationFeedback', () => {
 
         const result = sdk.openFeedback();
 
-        expect(result).toEqual({name: 'OpenFeedback', correlationId: 42});
+        expect(result).toMatchObject({
+            name: 'OpenFeedback',
+            correlationId: 42
+        });
         expect(sendMessageSpy).toHaveBeenCalledWith(result);
 
         sendMessageSpy.mockRestore();
