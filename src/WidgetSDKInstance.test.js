@@ -342,20 +342,6 @@ describe('update', () => {
 });
 
 describe('setDirty / clearDirty', () => {
-    test('setDirty logs warning and returns null when missing openMessageId', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
-        const logSpy = jest.spyOn(sdk, '_log');
-
-        const result = sdk.setDirty();
-
-        expect(result).toBeNull();
-        expect(logSpy).toHaveBeenCalledWith(
-            'SetDirty not sent: openMessageId is missing',
-            'warn',
-        );
-
-        logSpy.mockRestore();
-    });
 
     test('setDirty uses provided openMessageId', () => {
         const sdk = window.WidgetSDK.create({debug: true});
@@ -369,6 +355,37 @@ describe('setDirty / clearDirty', () => {
         expect(sendMessageSpy).toHaveBeenCalledWith(result);
 
         sendMessageSpy.mockRestore();
+    });
+
+    test('setDirty uses last openMessageId', () => {
+        const sdk = window.WidgetSDK.create({debug: true});
+        const sendMessageSpy = jest.spyOn(sdk, 'sendMessage');
+
+        sdk._handleMessage({data: {name: 'Open', messageId: 42}});
+
+        const result = sdk.setDirty();
+
+        expect(result.name).toBe('SetDirty');
+        expect(result.openMessageId).toBe(42);
+        expect(typeof result.messageId).toBe('number');
+        expect(sendMessageSpy).toHaveBeenCalledWith(result);
+
+        sendMessageSpy.mockRestore();
+    });
+
+    test('setDirty logs warning and returns null when missing openMessageId', () => {
+        const sdk = window.WidgetSDK.create({debug: true});
+        const logSpy = jest.spyOn(sdk, '_log');
+
+        const result = sdk.setDirty();
+
+        expect(result).toBeNull();
+        expect(logSpy).toHaveBeenCalledWith(
+            'SetDirty not sent: openMessageId is missing',
+            'warn',
+        );
+
+        logSpy.mockRestore();
     });
 
     test('clearDirty sends ClearDirty message', () => {
@@ -415,7 +432,7 @@ describe('openFeedback / validationFeedback', () => {
         sendMessageSpy.mockRestore();
     });
 
-    test('returns null and logs warning when missing changeMessageId', () => {
+    test('validationFeedback returns null and logs warning when missing changeMessageId', () => {
         const sdk = window.WidgetSDK.create({debug: true});
         const logSpy = jest.spyOn(sdk, '_log');
 
@@ -430,7 +447,7 @@ describe('openFeedback / validationFeedback', () => {
         logSpy.mockRestore();
     });
 
-    test('uses lastChangeMessageId and default message when messageText is undefined', () => {
+    test('validationFeedback uses lastChangeMessageId and default message when messageText is undefined', () => {
         const sdk = window.WidgetSDK.create({debug: true});
         const sendMessageSpy = jest.spyOn(sdk, 'sendMessage');
 
@@ -450,7 +467,7 @@ describe('openFeedback / validationFeedback', () => {
         sendMessageSpy.mockRestore();
     });
 
-    test('uses provided changeMessageId and custom message text', () => {
+    test('validationFeedback uses provided changeMessageId and custom message text', () => {
         const sdk = window.WidgetSDK.create({debug: true});
         const sendMessageSpy = jest.spyOn(sdk, 'sendMessage');
 
