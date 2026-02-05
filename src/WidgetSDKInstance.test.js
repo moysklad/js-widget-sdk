@@ -3,15 +3,21 @@
 require('./WidgetSDKInstance.js');
 
 describe('WidgetSDK basics', () => {
-    test('sdk instance creation with debug logging', () => {
-        expect(window.WidgetSDK).toBeDefined();
-        const sdk = window.WidgetSDK.create({debug: true});
+    let sdk;
 
+    afterEach(() => {
+        sdk.destroy();
+    });
+
+    test('sdk instance creation with debug logging', () => {
+        sdk = window.WidgetSDK.create({debug: true});
+
+        expect(window.WidgetSDK).toBeDefined();
         expect(sdk.debug).toBe(true);
     });
 
     test('_nextMessageId result is monotonic', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
+        sdk = window.WidgetSDK.create({debug: true});
 
         const first = sdk._nextMessageId();
         const second = sdk._nextMessageId();
@@ -20,40 +26,50 @@ describe('WidgetSDK basics', () => {
     });
 
     test('_log respects debug flag and levels', () => {
-        const sdk = window.WidgetSDK.create({debug: false});
-        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {
-        });
-        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {
-        });
+        sdk = window.WidgetSDK.create({debug: false});
 
-        sdk._log('should not log'); // debug=false, level=log
-        sdk._log('should warn', 'warn');
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-        expect(logSpy).not.toHaveBeenCalled();
-        expect(warnSpy).toHaveBeenCalledWith('[WidgetSDK]', 'should warn');
+        try {
+            sdk._log('should not log');
+            sdk._log('should warn', 'warn');
 
-        logSpy.mockRestore();
-        warnSpy.mockRestore();
+            expect(logSpy).not.toHaveBeenCalled();
+            expect(warnSpy).toHaveBeenCalledWith('[WidgetSDK]', 'should warn');
+        } finally {
+            logSpy.mockRestore();
+            warnSpy.mockRestore();
+        }
     });
 });
 
 describe('_handleMessage and events', () => {
+    let sdk;
+
+    beforeEach(() => {
+        sdk = window.WidgetSDK.create({debug: true});
+    });
+
+    afterEach(() => {
+        sdk.destroy();
+    });
+
     test('ignores and logs non-object messages', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const logSpy = jest.spyOn(sdk, '_log');
 
-        sdk._handleMessage({data: null});
+        try {
+            sdk._handleMessage({data: null});
 
-        expect(logSpy).toHaveBeenCalledTimes(1);
-        const logged = logSpy.mock.calls[0][0];
-        expect(typeof logged === 'function' ? logged() : logged).toContain('Unknown event message');
-
-        logSpy.mockRestore();
+            expect(logSpy).toHaveBeenCalledTimes(1);
+            const logged = logSpy.mock.calls[0][0];
+            expect(typeof logged === 'function' ? logged() : logged).toContain('Unknown event message');
+        } finally {
+            logSpy.mockRestore();
+        }
     });
 
     test('resolves pending request when matching message with correlationId arrives', async () => {
-        const sdk = window.WidgetSDK.create({debug: true});
-
         const messageId = 17;
         const promise = sdk.sendRequest({name: 'SelectGoodFolderRequest', messageId});
 
@@ -69,8 +85,6 @@ describe('_handleMessage and events', () => {
     });
 
     test('rejects pending request when matching InvalidMessageError arrives', async () => {
-        const sdk = window.WidgetSDK.create({debug: true});
-
         const messageId = 17;
         const promise = sdk.sendRequest({name: 'UpdateRequest', messageId});
 
@@ -91,7 +105,6 @@ describe('_handleMessage and events', () => {
     });
 
     test('updates last open and change message ids and notifies listeners', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const openHandler = jest.fn();
         const changeHandler = jest.fn();
 
@@ -111,28 +124,38 @@ describe('_handleMessage and events', () => {
     });
 
     test('listener errors are caught and logged', () => {
-        const sdk = window.WidgetSDK.create({debug: false});
         const erroringListener = jest.fn(() => {
             throw new Error('boom');
         });
         const logSpy = jest.spyOn(sdk, '_log');
 
-        sdk.on('Open', erroringListener);
-        sdk._handleMessage({data: {name: 'Open', messageId: 1}});
+        try {
+            sdk.on('Open', erroringListener);
+            sdk._handleMessage({data: {name: 'Open', messageId: 1}});
 
-        expect(erroringListener).toHaveBeenCalled();
-        expect(logSpy).toHaveBeenCalled();
-        const [message, level] = logSpy.mock.calls[1];
-        expect(message).toContain('Listener error for Open: boom');
-        expect(level).toBe('warn');
-
-        logSpy.mockRestore();
+            expect(erroringListener).toHaveBeenCalled();
+            expect(logSpy).toHaveBeenCalled();
+            const [message, level] = logSpy.mock.calls[1];
+            expect(message).toContain('Listener error for Open: boom');
+            expect(level).toBe('warn');
+        } finally {
+            logSpy.mockRestore();
+        }
     });
 });
 
 describe('subscription helpers (on*/off)', () => {
+    let sdk;
+
+    beforeEach(() => {
+        sdk = window.WidgetSDK.create({debug: true});
+    });
+
+    afterEach(() => {
+        sdk.destroy();
+    });
+
     test('onOpen, onOpenPopup, onSave, onChange use underlying on/off', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const openHandler = jest.fn();
         const popupHandler = jest.fn();
         const saveHandler = jest.fn();
@@ -176,7 +199,6 @@ describe('subscription helpers (on*/off)', () => {
     });
 
     test('off removes the specified listener', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const handlerOne = jest.fn();
         const handlerTwo = jest.fn();
 
@@ -194,51 +216,63 @@ describe('subscription helpers (on*/off)', () => {
 });
 
 describe('sendRequest and sendMessage', () => {
-    test('sendMessage delegates to postMessage', () => {
-        const originalParent = global.parent;
-        global.parent = window;
+    let sdk;
+    let originalParent;
 
-        const postMessageSpy = jest.spyOn(window, 'postMessage').mockImplementation(() => {
-        });
+    beforeEach(() => {
+        sdk = window.WidgetSDK.create({debug: true});
+        originalParent = global.parent;
+    });
 
-        const sdk = window.WidgetSDK.create({debug: true});
-        const navigateRequest = {
-            name: 'NavigateRequest',
-            path: '/dashboard',
-            target: 'blank',
-        };
-
-        sdk.sendMessage(navigateRequest);
-
-        expect(postMessageSpy).toHaveBeenCalledTimes(1);
-        expect(postMessageSpy).toHaveBeenCalledWith(navigateRequest, '*');
-
-        postMessageSpy.mockRestore();
+    afterEach(() => {
+        sdk.destroy();
         global.parent = originalParent;
     });
 
-    test('sendMessage log warn when postMessage throws', async () => {
+    test('sendMessage delegates to postMessage', () => {
+        global.parent = window;
+
+        const postMessageSpy = jest.spyOn(window, 'postMessage').mockImplementation(() => {});
+
+        try {
+            const navigateRequest = {
+                name: 'NavigateRequest',
+                path: '/dashboard',
+                target: 'blank',
+            };
+
+            sdk.sendMessage(navigateRequest);
+
+            expect(postMessageSpy).toHaveBeenCalledTimes(1);
+            expect(postMessageSpy).toHaveBeenCalledWith(navigateRequest, '*');
+        } finally {
+            postMessageSpy.mockRestore();
+        }
+    });
+
+    test('sendMessage log warn when postMessage throws', () => {
         const postMessageSpy = jest
             .spyOn(window, 'postMessage')
             .mockImplementation(() => {
                 throw new Error('postMessage boom');
             });
 
-        const sdk = window.WidgetSDK.create({debug: true});
         const logSpy = jest.spyOn(sdk, '_log');
 
-        sdk.sendMessage({
-            name: 'UpdateRequest',
-            updateState: {status: 'failed'},
-        });
+        try {
+            sdk.sendMessage({
+                name: 'UpdateRequest',
+                updateState: {status: 'failed'},
+            });
 
-        expect(logSpy).toHaveBeenCalledWith(
-            'postMessage error for UpdateRequest: postMessage boom',
-            'warn',
-        );
-
-        postMessageSpy.mockRestore();
-        logSpy.mockRestore();
+            expect(logSpy).toHaveBeenCalledWith(
+                'postMessage error for UpdateRequest: postMessage boom',
+                'warn',
+            );
+        } finally {
+            postMessageSpy.mockRestore();
+            logSpy.mockRestore();
+        }
     });
 
     test('sendRequest rejects with warn when postMessage throws', async () => {
@@ -248,299 +282,372 @@ describe('sendRequest and sendMessage', () => {
                 throw new Error('postMessage boom');
             });
 
-        const sdk = window.WidgetSDK.create({debug: true});
         const logSpy = jest.spyOn(sdk, '_log');
 
-        const promise = sdk.sendRequest({
-            name: 'UpdateRequest',
-            updateState: {status: 'failed'},
-        });
+        try {
+            const promise = sdk.sendRequest({
+                name: 'UpdateRequest',
+                updateState: {status: 'failed'},
+            });
 
-        await expect(promise).rejects.toThrow('postMessage boom');
-        expect(sdk._pendingRequests.size).toBe(0);
-        expect(logSpy).toHaveBeenCalledWith(
-            'postMessage error for UpdateRequest: postMessage boom',
-            'warn',
-        );
-
-        postMessageSpy.mockRestore();
-        logSpy.mockRestore();
+            await expect(promise).rejects.toThrow('postMessage boom');
+            expect(sdk._pendingRequests.size).toBe(0);
+            expect(logSpy).toHaveBeenCalledWith(
+                'postMessage error for UpdateRequest: postMessage boom',
+                'warn',
+            );
+        } finally {
+            postMessageSpy.mockRestore();
+            logSpy.mockRestore();
+        }
     });
 });
 
 describe('service protocols', () => {
+    let sdk;
+
+    beforeEach(() => {
+        sdk = window.WidgetSDK.create({debug: true});
+    });
+
+    afterEach(() => {
+        sdk.destroy();
+    });
+
     test('selectGoodFolder uses sendRequest', async () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendRequestSpy = jest
             .spyOn(sdk, 'sendRequest')
             .mockResolvedValue({ok: true});
 
-        const result = await sdk.selectGoodFolder();
+        try {
+            const result = await sdk.selectGoodFolder();
 
-        expect(sendRequestSpy).toHaveBeenCalledWith({name: 'SelectGoodFolderRequest'});
-        expect(result).toEqual({ok: true});
-
-        sendRequestSpy.mockRestore();
+            expect(sendRequestSpy).toHaveBeenCalledWith({name: 'SelectGoodFolderRequest'});
+            expect(result).toEqual({ok: true});
+        } finally {
+            sendRequestSpy.mockRestore();
+        }
     });
 
     test('showDialog uses sendRequest with defaults', async () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendRequestSpy = jest
             .spyOn(sdk, 'sendRequest')
             .mockResolvedValue({dialogResult: 'Ok'});
 
-        const text = 'Hello';
-        const result = await sdk.showDialog(text);
+        try {
+            const text = 'Hello';
+            const result = await sdk.showDialog(text);
 
-        expect(sendRequestSpy).toHaveBeenCalledWith({
-            name: 'ShowDialogRequest',
-            dialogText: text,
-            buttons: [{name: 'Ok', caption: 'ОК'}],
-        });
-        expect(result).toEqual({dialogResult: 'Ok'});
-
-        sendRequestSpy.mockRestore();
+            expect(sendRequestSpy).toHaveBeenCalledWith({
+                name: 'ShowDialogRequest',
+                dialogText: text,
+                buttons: [{name: 'Ok', caption: 'ОК'}],
+            });
+            expect(result).toEqual({dialogResult: 'Ok'});
+        } finally {
+            sendRequestSpy.mockRestore();
+        }
     });
 
     test('navigateTo builds request', async () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendRequestSpy = jest
             .spyOn(sdk, 'sendRequest')
             .mockResolvedValue({navigated: true});
 
-        const result = await sdk.navigateTo('/some/path', 'self');
+        try {
+            const result = await sdk.navigateTo('/some/path', 'self');
 
-        expect(sendRequestSpy).toHaveBeenCalledWith({
-            name: 'NavigateRequest',
-            path: '/some/path',
-            target: 'self',
-        });
-        expect(result).toEqual({navigated: true});
-
-        sendRequestSpy.mockRestore();
+            expect(sendRequestSpy).toHaveBeenCalledWith({
+                name: 'NavigateRequest',
+                path: '/some/path',
+                target: 'self',
+            });
+            expect(result).toEqual({navigated: true});
+        } finally {
+            sendRequestSpy.mockRestore();
+        }
     });
 });
 
 describe('update', () => {
+    let sdk;
+
+    beforeEach(() => {
+        sdk = window.WidgetSDK.create({debug: true});
+    });
+
+    afterEach(() => {
+        sdk.destroy();
+    });
+
     test('update builds request', async () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendRequestSpy = jest
             .spyOn(sdk, 'sendRequest')
             .mockResolvedValue({updated: true});
 
-        const updateState = {foo: 'bar'};
-        const result = await sdk.update(updateState);
+        try {
+            const updateState = {foo: 'bar'};
+            const result = await sdk.update(updateState);
 
-        expect(sendRequestSpy).toHaveBeenCalledWith({
-            name: 'UpdateRequest',
-            updateState,
-        });
-        expect(result).toEqual({updated: true});
-
-        sendRequestSpy.mockRestore();
+            expect(sendRequestSpy).toHaveBeenCalledWith({
+                name: 'UpdateRequest',
+                updateState,
+            });
+            expect(result).toEqual({updated: true});
+        } finally {
+            sendRequestSpy.mockRestore();
+        }
     });
 });
 
 describe('setDirty / clearDirty', () => {
+    let sdk;
+
+    beforeEach(() => {
+        sdk = window.WidgetSDK.create({debug: true});
+    });
+
+    afterEach(() => {
+        sdk.destroy();
+    });
 
     test('setDirty uses provided openMessageId', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendMessageSpy = jest.spyOn(sdk, 'sendMessage');
 
-        const result = sdk.setDirty(99);
+        try {
+            const result = sdk.setDirty(99);
 
-        expect(result.name).toBe('SetDirty');
-        expect(result.openMessageId).toBe(99);
-        expect(typeof result.messageId).toBe('number');
-        expect(sendMessageSpy).toHaveBeenCalledWith(result);
-
-        sendMessageSpy.mockRestore();
+            expect(result.name).toBe('SetDirty');
+            expect(result.openMessageId).toBe(99);
+            expect(typeof result.messageId).toBe('number');
+            expect(sendMessageSpy).toHaveBeenCalledWith(result);
+        } finally {
+            sendMessageSpy.mockRestore();
+        }
     });
 
     test('setDirty uses last openMessageId', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendMessageSpy = jest.spyOn(sdk, 'sendMessage');
 
-        sdk._handleMessage({data: {name: 'Open', messageId: 42}});
+        try {
+            sdk._handleMessage({data: {name: 'Open', messageId: 42}});
 
-        const result = sdk.setDirty();
+            const result = sdk.setDirty();
 
-        expect(result.name).toBe('SetDirty');
-        expect(result.openMessageId).toBe(42);
-        expect(typeof result.messageId).toBe('number');
-        expect(sendMessageSpy).toHaveBeenCalledWith(result);
-
-        sendMessageSpy.mockRestore();
+            expect(result.name).toBe('SetDirty');
+            expect(result.openMessageId).toBe(42);
+            expect(typeof result.messageId).toBe('number');
+            expect(sendMessageSpy).toHaveBeenCalledWith(result);
+        } finally {
+            sendMessageSpy.mockRestore();
+        }
     });
 
     test('setDirty logs warning and returns null when missing openMessageId', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const logSpy = jest.spyOn(sdk, '_log');
 
-        const result = sdk.setDirty();
+        try {
+            const result = sdk.setDirty();
 
-        expect(result).toBeNull();
-        expect(logSpy).toHaveBeenCalledWith(
-            'SetDirty not sent: openMessageId is missing',
-            'warn',
-        );
-
-        logSpy.mockRestore();
+            expect(result).toBeNull();
+            expect(logSpy).toHaveBeenCalledWith(
+                'SetDirty not sent: openMessageId is missing',
+                'warn',
+            );
+        } finally {
+            logSpy.mockRestore();
+        }
     });
 
     test('clearDirty sends ClearDirty message', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendMessageSpy = jest.spyOn(sdk, 'sendMessage');
 
-        const result = sdk.clearDirty();
+        try {
+            const result = sdk.clearDirty();
 
-        expect(result.name).toBe('ClearDirty');
-        expect(typeof result.messageId).toBe('number');
-        expect(sendMessageSpy).toHaveBeenCalledWith(result);
-
-        sendMessageSpy.mockRestore();
+            expect(result.name).toBe('ClearDirty');
+            expect(typeof result.messageId).toBe('number');
+            expect(sendMessageSpy).toHaveBeenCalledWith(result);
+        } finally {
+            sendMessageSpy.mockRestore();
+        }
     });
 });
 
 describe('openFeedback / validationFeedback', () => {
+    let sdk;
+
+    beforeEach(() => {
+        sdk = window.WidgetSDK.create({debug: true});
+    });
+
+    afterEach(() => {
+        sdk.destroy();
+    });
+
     test('openFeedback logs warning and returns null when missing openMessageId', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const logSpy = jest.spyOn(sdk, '_log');
 
-        const result = sdk.openFeedback();
+        try {
+            const result = sdk.openFeedback();
 
-        expect(result).toBeNull();
-        expect(logSpy).toHaveBeenCalledWith(
-            'OpenFeedback not sent: openMessageId is missing',
-            'warn',
-        );
-
-        logSpy.mockRestore();
+            expect(result).toBeNull();
+            expect(logSpy).toHaveBeenCalledWith(
+                'OpenFeedback not sent: openMessageId is missing',
+                'warn',
+            );
+        } finally {
+            logSpy.mockRestore();
+        }
     });
 
     test('openFeedback uses lastOpenMessageId when available', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendMessageSpy = jest.spyOn(sdk, 'sendMessage');
 
-        sdk._handleMessage({data: {name: 'Open', messageId: 42}});
+        try {
+            sdk._handleMessage({data: {name: 'Open', messageId: 42}});
 
-        const result = sdk.openFeedback();
+            const result = sdk.openFeedback();
 
-        expect(result).toMatchObject({
-            name: 'OpenFeedback',
-            correlationId: 42
-        });
-        expect(sendMessageSpy).toHaveBeenCalledWith(result);
-
-        sendMessageSpy.mockRestore();
+            expect(result).toMatchObject({
+                name: 'OpenFeedback',
+                correlationId: 42
+            });
+            expect(sendMessageSpy).toHaveBeenCalledWith(result);
+        } finally {
+            sendMessageSpy.mockRestore();
+        }
     });
 
     test('validationFeedback returns null and logs warning when missing changeMessageId', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const logSpy = jest.spyOn(sdk, '_log');
 
-        const result = sdk.validationFeedback(true);
+        try {
+            const result = sdk.validationFeedback(true);
 
-        expect(result).toBeNull();
-        expect(logSpy).toHaveBeenCalledWith(
-            'ValidationFeedback not sent: changeMessageId is missing',
-            'warn',
-        );
-
-        logSpy.mockRestore();
+            expect(result).toBeNull();
+            expect(logSpy).toHaveBeenCalledWith(
+                'ValidationFeedback not sent: changeMessageId is missing',
+                'warn',
+            );
+        } finally {
+            logSpy.mockRestore();
+        }
     });
 
     test('validationFeedback uses lastChangeMessageId and default message when messageText is undefined', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendMessageSpy = jest.spyOn(sdk, 'sendMessage');
 
-        sdk._handleMessage({data: {name: 'Change', messageId: 7}});
+        try {
+            sdk._handleMessage({data: {name: 'Change', messageId: 7}});
 
-        const result = sdk.validationFeedback(true);
+            const result = sdk.validationFeedback(true);
 
-        expect(result).toMatchObject({
-            name: 'ValidationFeedback',
-            correlationId: 7,
-            valid: true,
-            message: 'Invalid data',
-        });
-        expect(typeof result.messageId).toBe('number');
-        expect(sendMessageSpy).toHaveBeenCalledWith(result);
-
-        sendMessageSpy.mockRestore();
+            expect(result).toMatchObject({
+                name: 'ValidationFeedback',
+                correlationId: 7,
+                valid: true,
+                message: 'Invalid data',
+            });
+            expect(typeof result.messageId).toBe('number');
+            expect(sendMessageSpy).toHaveBeenCalledWith(result);
+        } finally {
+            sendMessageSpy.mockRestore();
+        }
     });
 
     test('validationFeedback uses provided changeMessageId and custom message text', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendMessageSpy = jest.spyOn(sdk, 'sendMessage');
 
-        const result = sdk.validationFeedback(false, 'Bad data', 123);
+        try {
+            const result = sdk.validationFeedback(false, 'Bad data', 123);
 
-        expect(result).toMatchObject({
-            name: 'ValidationFeedback',
-            correlationId: 123,
-            valid: false,
-            message: 'Bad data',
-        });
-        expect(sendMessageSpy).toHaveBeenCalledWith(result);
-
-        sendMessageSpy.mockRestore();
+            expect(result).toMatchObject({
+                name: 'ValidationFeedback',
+                correlationId: 123,
+                valid: false,
+                message: 'Bad data',
+            });
+            expect(sendMessageSpy).toHaveBeenCalledWith(result);
+        } finally {
+            sendMessageSpy.mockRestore();
+        }
     });
 });
 
 describe('custom popup helpers', () => {
+    let sdk;
+
+    beforeEach(() => {
+        sdk = window.WidgetSDK.create({debug: true});
+    });
+
+    afterEach(() => {
+        sdk.destroy();
+    });
+
     test('showPopup builds request with and without parameters', async () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendRequestSpy = jest
             .spyOn(sdk, 'sendRequest')
             .mockResolvedValue({closed: true});
 
-        const result1 = await sdk.showPopup('MyPopup');
-        const result2 = await sdk.showPopup('MyPopup', {foo: 'bar'});
+        try {
+            const result1 = await sdk.showPopup('MyPopup');
+            const result2 = await sdk.showPopup('MyPopup', {foo: 'bar'});
 
-        expect(sendRequestSpy).toHaveBeenNthCalledWith(1, {
-            name: 'ShowPopupRequest',
-            popupName: 'MyPopup',
-        });
-        expect(sendRequestSpy).toHaveBeenNthCalledWith(2, {
-            name: 'ShowPopupRequest',
-            popupName: 'MyPopup',
-            popupParameters: {foo: 'bar'},
-        });
+            expect(sendRequestSpy).toHaveBeenNthCalledWith(1, {
+                name: 'ShowPopupRequest',
+                popupName: 'MyPopup',
+            });
+            expect(sendRequestSpy).toHaveBeenNthCalledWith(2, {
+                name: 'ShowPopupRequest',
+                popupName: 'MyPopup',
+                popupParameters: {foo: 'bar'},
+            });
 
-        expect(result1).toEqual({closed: true});
-        expect(result2).toEqual({closed: true});
-
-        sendRequestSpy.mockRestore();
+            expect(result1).toEqual({closed: true});
+            expect(result2).toEqual({closed: true});
+        } finally {
+            sendRequestSpy.mockRestore();
+        }
     });
 
     test('closePopup sends ClosePopup with optional response', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
         const sendMessageSpy = jest.spyOn(sdk, 'sendMessage');
 
-        const result1 = sdk.closePopup();
-        const result2 = sdk.closePopup({ok: true});
+        try {
+            const result1 = sdk.closePopup();
+            const result2 = sdk.closePopup({ok: true});
 
-        expect(result1).toMatchObject({name: 'ClosePopup'});
-        expect(typeof result1.messageId).toBe('number');
+            expect(result1).toMatchObject({name: 'ClosePopup'});
+            expect(typeof result1.messageId).toBe('number');
 
-        expect(result2).toMatchObject({
-            name: 'ClosePopup',
-            popupResponse: {ok: true},
-        });
-        expect(typeof result2.messageId).toBe('number');
+            expect(result2).toMatchObject({
+                name: 'ClosePopup',
+                popupResponse: {ok: true},
+            });
+            expect(typeof result2.messageId).toBe('number');
 
-        expect(sendMessageSpy).toHaveBeenCalledWith(result1);
-        expect(sendMessageSpy).toHaveBeenCalledWith(result2);
-
-        sendMessageSpy.mockRestore();
+            expect(sendMessageSpy).toHaveBeenCalledWith(result1);
+            expect(sendMessageSpy).toHaveBeenCalledWith(result2);
+        } finally {
+            sendMessageSpy.mockRestore();
+        }
     });
 });
 
 describe('internal id helpers', () => {
-    test('_getOpenMessageId and _getChangeMessageId fall back to last ids', () => {
-        const sdk = window.WidgetSDK.create({debug: true});
+    let sdk;
 
+    beforeEach(() => {
+        sdk = window.WidgetSDK.create({debug: true});
+    });
+
+    afterEach(() => {
+        sdk.destroy();
+    });
+
+    test('_getOpenMessageId and _getChangeMessageId fall back to last ids', () => {
         sdk._handleMessage({data: {name: 'Open', messageId: 5}});
         sdk._handleMessage({data: {name: 'Change', messageId: 6}});
 
@@ -553,27 +660,35 @@ describe('internal id helpers', () => {
 });
 
 describe('destroy()', () => {
-    test('clears listeners, rejects pending requests, removes event listener and logs', async () => {
-        const addListenerSpy = jest.spyOn(window, 'addEventListener');
-        const removeListenerSpy = jest.spyOn(window, 'removeEventListener');
+    let addListenerSpy;
+    let removeListenerSpy;
 
-        const sdk = window.WidgetSDK.create({debug: true});
+    beforeEach(() => {
+        addListenerSpy = jest.spyOn(window, 'addEventListener');
+        removeListenerSpy = jest.spyOn(window, 'removeEventListener');
+    });
 
-        const logSpy = jest.spyOn(sdk, '_log');
-
-        const promise = sdk.sendRequest({name: 'Pending'});
-
-        sdk.destroy();
-
-        await expect(promise).rejects.toMatchObject({name: 'SDKDestroyed'});
-        expect(sdk._listeners.size).toBe(0);
-        expect(sdk._pendingRequests.size).toBe(0);
-        expect(removeListenerSpy).toHaveBeenCalledWith('message', sdk._handleMessage);
-        expect(logSpy).toHaveBeenCalledWith('SDK destroyed');
-
+    afterEach(() => {
         addListenerSpy.mockRestore();
         removeListenerSpy.mockRestore();
-        logSpy.mockRestore();
+    });
+
+    test('clears listeners, rejects pending requests, removes event listener and logs', async () => {
+        const sdk = window.WidgetSDK.create({debug: true});
+        const logSpy = jest.spyOn(sdk, '_log');
+
+        try {
+            const promise = sdk.sendRequest({name: 'Pending'});
+
+            sdk.destroy();
+
+            await expect(promise).rejects.toMatchObject({name: 'SDKDestroyed'});
+            expect(sdk._listeners.size).toBe(0);
+            expect(sdk._pendingRequests.size).toBe(0);
+            expect(removeListenerSpy).toHaveBeenCalledWith('message', sdk._handleMessage);
+            expect(logSpy).toHaveBeenCalledWith('SDK destroyed');
+        } finally {
+            logSpy.mockRestore();
+        }
     });
 });
-
