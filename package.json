@@ -1,14 +1,16 @@
 {
-  "name": "@moysklad/js-sdk-widget",
+  "name": "@lognex/js-widget-sdk",
   "version": "0.1.0",
   "description": "Widget SDK build setup",
   "main": "dist/widget.js",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "build": "rollup -c rollup.config.mjs",
-    "test": "jest"
+    "test": "jest",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@rollup/plugin-terser": "0.4.4",
