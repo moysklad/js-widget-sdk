@@ -466,7 +466,6 @@
      * Public SDK API.
      */
     const WidgetSDK = {
-        version: '0.1.0',
         /**
          * Creates an SDK instance.
          * @param {Object} options Initialization options.
