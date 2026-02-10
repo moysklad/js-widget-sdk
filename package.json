@@ -1,6 +1,6 @@
 {
   "name": "@moysklad-official/js-widget-sdk",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Widget SDK build setup",
   "license": "MIT",
   "main": "dist/widget.js",
