@@ -1,12 +1,16 @@
 {
-  "name": "@lognex/js-widget-sdk",
+  "name": "@moysklad-official/js-widget-sdk",
   "version": "0.1.0",
   "description": "Widget SDK build setup",
+  "license": "MIT",
   "main": "dist/widget.js",
   "files": [
     "dist",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "rollup -c rollup.config.mjs",
     "test": "jest",
