@@ -17,11 +17,21 @@ jobs:
           node-version: 24
 
       - run: npm ci
-      - run: npm run build
-      - run: npm test
-      - run: zip -r dist.zip dist
+      - name: Check tag matches package version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+
+          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Tag version ($TAG_VERSION) does not match package.json version ($PACKAGE_VERSION)"
+            exit 1
+          fi
+      - run: npm test -- --runInBand
+      - run: npm run release:assets
+      - run: npm pack
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist.zip
+            moysklad-js-widget-sdk-*.tgz

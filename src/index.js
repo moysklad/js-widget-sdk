@@ -1,1 +1,1 @@
-import './WidgetSDKInstance.js';
+export {default} from './core.js';

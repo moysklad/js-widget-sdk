@@ -1,6 +1,20 @@
 /* eslint-disable no-underscore-dangle */
 
-require('./WidgetSDKInstance.js');
+require('../dist/widget.js');
+const moduleEntry = require('../dist/index.cjs');
+
+describe('package entrypoints', () => {
+    test('browser entry exposes WidgetSDK on window', () => {
+        expect(window.WidgetSDK).toBeDefined();
+        expect(typeof window.WidgetSDK.create).toBe('function');
+    });
+
+    test('commonjs entry exports the SDK object', () => {
+        expect(moduleEntry).toBeDefined();
+        expect(typeof moduleEntry.create).toBe('function');
+        expect(moduleEntry.WidgetSDKInstance).toBeDefined();
+    });
+});
 
 describe('WidgetSDK basics', () => {
     let sdk;
