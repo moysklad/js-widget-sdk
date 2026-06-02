@@ -303,6 +303,179 @@ describe('sendRequest and sendMessage', () => {
     });
 });
 
+describe('autoResizeIframe', () => {
+    let sdk;
+    let originalParent;
+    let originalDocumentElement;
+
+    beforeEach(() => {
+        sdk = window.WidgetSDK.create({debug: true});
+        originalParent = window.parent;
+        originalDocumentElement = document.documentElement;
+    });
+
+    afterEach(() => {
+        sdk.destroy();
+
+        Object.defineProperty(window, 'parent', {
+            configurable: true,
+            value: originalParent
+        });
+
+        Object.defineProperty(document, 'documentElement', {
+            configurable: true,
+            value: originalDocumentElement
+        });
+    });
+
+    test('returns noop outside iframe', () => {
+        Object.defineProperty(window, 'parent', {
+            configurable: true,
+            value: window
+        });
+
+        const dispose = sdk.autoResizeIframe();
+
+        expect(typeof dispose).toBe('function');
+        expect(() => dispose()).not.toThrow();
+    });
+
+    test('sends current height immediately and skips duplicate values', () => {
+        jest.useFakeTimers();
+
+        const parentWindow = {postMessage: jest.fn()};
+        let height = 320;
+
+        Object.defineProperty(window, 'parent', {
+            configurable: true,
+            value: parentWindow
+        });
+
+        Object.defineProperty(document, 'documentElement', {
+            configurable: true,
+            value: {
+                getBoundingClientRect: jest.fn(() => ({height}))
+            }
+        });
+
+        const dispose = sdk.autoResizeIframe({intervalMs: 100});
+
+        expect(parentWindow.postMessage).toHaveBeenCalledTimes(1);
+        expect(parentWindow.postMessage).toHaveBeenNthCalledWith(1, {height: 320}, '*');
+
+        jest.advanceTimersByTime(100);
+        expect(parentWindow.postMessage).toHaveBeenCalledTimes(1);
+
+        height = 480;
+        jest.advanceTimersByTime(100);
+
+        expect(parentWindow.postMessage).toHaveBeenCalledTimes(2);
+        expect(parentWindow.postMessage).toHaveBeenNthCalledWith(2, {height: 480}, '*');
+
+        dispose();
+        jest.useRealTimers();
+    });
+
+    test('stops on explicit dispose', () => {
+        jest.useFakeTimers();
+
+        const parentWindow = {postMessage: jest.fn()};
+        let height = 250;
+
+        Object.defineProperty(window, 'parent', {
+            configurable: true,
+            value: parentWindow
+        });
+
+        Object.defineProperty(document, 'documentElement', {
+            configurable: true,
+            value: {
+                getBoundingClientRect: jest.fn(() => ({height}))
+            }
+        });
+
+        const dispose = sdk.autoResizeIframe({intervalMs: 100});
+
+        dispose();
+        height = 400;
+        jest.advanceTimersByTime(200);
+
+        expect(parentWindow.postMessage).toHaveBeenCalledTimes(1);
+        jest.useRealTimers();
+    });
+
+    test('cleans up resize polling on destroy', () => {
+        jest.useFakeTimers();
+
+        const parentWindow = {postMessage: jest.fn()};
+        const addSpy = jest.spyOn(window, 'addEventListener');
+        const removeSpy = jest.spyOn(window, 'removeEventListener');
+
+        Object.defineProperty(window, 'parent', {
+            configurable: true,
+            value: parentWindow
+        });
+
+        Object.defineProperty(document, 'documentElement', {
+            configurable: true,
+            value: {
+                getBoundingClientRect: jest.fn(() => ({height: 250}))
+            }
+        });
+
+        sdk.autoResizeIframe({intervalMs: 100});
+        const loadHandler = addSpy.mock.calls.find(([eventName]) => eventName === 'load')[1];
+
+        sdk.destroy();
+        jest.advanceTimersByTime(200);
+
+        expect(removeSpy).toHaveBeenCalledWith('load', loadHandler);
+        expect(parentWindow.postMessage).toHaveBeenCalledTimes(1);
+
+        addSpy.mockRestore();
+        removeSpy.mockRestore();
+        jest.useRealTimers();
+    });
+
+    test('replaces previous poller on repeated call', () => {
+        jest.useFakeTimers();
+
+        const parentWindow = {postMessage: jest.fn()};
+        let height = 250;
+
+        Object.defineProperty(window, 'parent', {
+            configurable: true,
+            value: parentWindow
+        });
+
+        Object.defineProperty(document, 'documentElement', {
+            configurable: true,
+            value: {
+                getBoundingClientRect: jest.fn(() => ({height}))
+            }
+        });
+
+        const firstDispose = sdk.autoResizeIframe({intervalMs: 100});
+        sdk.autoResizeIframe({intervalMs: 100});
+
+        height = 400;
+        jest.advanceTimersByTime(100);
+
+        expect(parentWindow.postMessage).toHaveBeenCalledTimes(3);
+        expect(parentWindow.postMessage).toHaveBeenNthCalledWith(1, {height: 250}, '*');
+        expect(parentWindow.postMessage).toHaveBeenNthCalledWith(2, {height: 250}, '*');
+        expect(parentWindow.postMessage).toHaveBeenNthCalledWith(3, {height: 400}, '*');
+
+        firstDispose();
+        height = 550;
+        jest.advanceTimersByTime(100);
+
+        expect(parentWindow.postMessage).toHaveBeenCalledTimes(4);
+        expect(parentWindow.postMessage).toHaveBeenNthCalledWith(4, {height: 550}, '*');
+        jest.useRealTimers();
+    });
+});
+
 describe('service protocols', () => {
     let sdk;
 

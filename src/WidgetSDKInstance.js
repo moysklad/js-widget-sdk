@@ -12,6 +12,8 @@
             this._requestIdCounter = 0;
             this._pendingRequests = new Map();
             this._listeners = new Map();
+            this._cleanupCallbacks = new Set();
+            this._iframeAutoResizeCleanup = null;
             this._lastOpenMessageId = null;
             this._lastChangeMessageId = null;
 
@@ -409,6 +411,73 @@
         }
 
         /**
+         * Starts sending current iframe height to the parent window.
+         * If already active, replaces the previous auto-resize poller.
+         * @param {Object} options Auto-resize options.
+         * @param {number} [options.intervalMs=250] Polling interval in milliseconds.
+         * @returns {Function} Stop function.
+         */
+        autoResizeIframe(options = {}) {
+            if (!global || global.parent === global) {
+                return () => {};
+            }
+
+            if (this._iframeAutoResizeCleanup) {
+                this._iframeAutoResizeCleanup();
+            }
+
+            const parentWindow = global.parent;
+            const intervalMs = options.intervalMs ?? 250;
+            let lastHeight = -1;
+
+            const sendExpand = () => {
+                const documentElement = global.document && global.document.documentElement;
+
+                if (!documentElement || !documentElement.getBoundingClientRect) {
+                    return;
+                }
+
+                const height = documentElement.getBoundingClientRect().height;
+
+                if (height === lastHeight) {
+                    return;
+                }
+
+                lastHeight = height;
+                parentWindow.postMessage({height}, '*');
+            };
+
+            const onLoad = () => {
+                sendExpand();
+            };
+
+            global.addEventListener('load', onLoad);
+
+            const intervalId = global.setInterval(sendExpand, intervalMs);
+            let disposed = false;
+
+            const dispose = () => {
+                if (disposed) {
+                    return;
+                }
+
+                disposed = true;
+                if (this._iframeAutoResizeCleanup === dispose) {
+                    this._iframeAutoResizeCleanup = null;
+                }
+                this._cleanupCallbacks.delete(dispose);
+                global.removeEventListener('load', onLoad);
+                global.clearInterval(intervalId);
+            };
+
+            this._iframeAutoResizeCleanup = dispose;
+            this._cleanupCallbacks.add(dispose);
+            sendExpand();
+
+            return dispose;
+        }
+
+        /**
          * Returns the openMessageId or messageId from the last Open message.
          * @param {number} openMessageId ID of the Open message.
          * @returns {number|null} Open message ID or null.
@@ -439,6 +508,15 @@
          * @returns {void}
          */
         destroy() {
+            this._cleanupCallbacks.forEach(cleanup => {
+                try {
+                    cleanup();
+                } catch (e) {
+                    // no-op
+                }
+            });
+            this._cleanupCallbacks.clear();
+
             this._listeners.clear();
             this._pendingRequests.forEach(pending => {
                 try {
@@ -461,10 +539,6 @@
             this._log('SDK destroyed');
         }
     }
-
-    /**
-     * Public SDK API.
-     */
     const WidgetSDK = {
         /**
          * Creates an SDK instance.
