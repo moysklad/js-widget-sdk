@@ -12,8 +12,8 @@
             this._requestIdCounter = 0;
             this._pendingRequests = new Map();
             this._listeners = new Map();
-            this._cleanupCallbacks = new Set();
-            this._iframeAutoResizeCleanup = null;
+            this._iframeAutoResizeDispose = null;
+            this._messageListenerActive = false;
             this._lastOpenMessageId = null;
             this._lastChangeMessageId = null;
 
@@ -26,6 +26,7 @@
             }
 
             global.addEventListener('message', this._handleMessage);
+            this._messageListenerActive = true;
         }
 
         /**
@@ -56,6 +57,37 @@
          */
         _nextMessageId() {
             return ++this._requestIdCounter;
+        }
+
+        /**
+         * Removes the host message listener if it was attached.
+         * @returns {void}
+         */
+        _detachMessageListener() {
+            if (!this._messageListenerActive || !global.removeEventListener) {
+                return;
+            }
+
+            global.removeEventListener('message', this._handleMessage);
+            this._messageListenerActive = false;
+        }
+
+        /**
+         * Stops iframe auto-resize polling if it is active.
+         * @returns {void}
+         */
+        _disposeAutoResizeIframe() {
+            if (!this._iframeAutoResizeDispose) {
+                return;
+            }
+
+            try {
+                this._iframeAutoResizeDispose();
+            } catch (e) {
+                // no-op
+            }
+
+            this._iframeAutoResizeDispose = null;
         }
 
         /**
@@ -411,20 +443,18 @@
         }
 
         /**
-         * Starts sending current iframe height to the parent window.
-         * If already active, replaces the previous auto-resize poller.
+         * Starts sending current iframe height to the parent window when running inside an iframe.
+         * If auto-resize is already active on this SDK instance, the previous poller is stopped and replaced.
          * @param {Object} options Auto-resize options.
          * @param {number} [options.intervalMs=250] Polling interval in milliseconds.
-         * @returns {Function} Stop function.
+         * @returns {Function} Stop function. Outside an iframe returns a no-op function.
          */
         autoResizeIframe(options = {}) {
             if (!global || global.parent === global) {
                 return () => {};
             }
 
-            if (this._iframeAutoResizeCleanup) {
-                this._iframeAutoResizeCleanup();
-            }
+            this._disposeAutoResizeIframe();
 
             const parentWindow = global.parent;
             const intervalMs = options.intervalMs ?? 250;
@@ -462,16 +492,14 @@
                 }
 
                 disposed = true;
-                if (this._iframeAutoResizeCleanup === dispose) {
-                    this._iframeAutoResizeCleanup = null;
+                if (this._iframeAutoResizeDispose === dispose) {
+                    this._iframeAutoResizeDispose = null;
                 }
-                this._cleanupCallbacks.delete(dispose);
                 global.removeEventListener('load', onLoad);
                 global.clearInterval(intervalId);
             };
 
-            this._iframeAutoResizeCleanup = dispose;
-            this._cleanupCallbacks.add(dispose);
+            this._iframeAutoResizeDispose = dispose;
             sendExpand();
 
             return dispose;
@@ -508,15 +536,7 @@
          * @returns {void}
          */
         destroy() {
-            this._cleanupCallbacks.forEach(cleanup => {
-                try {
-                    cleanup();
-                } catch (e) {
-                    // no-op
-                }
-            });
-            this._cleanupCallbacks.clear();
-
+            this._disposeAutoResizeIframe();
             this._listeners.clear();
             this._pendingRequests.forEach(pending => {
                 try {
@@ -532,9 +552,7 @@
 
             this._pendingRequests.clear();
 
-            if (global.removeEventListener) {
-                global.removeEventListener('message', this._handleMessage);
-            }
+            this._detachMessageListener();
 
             this._log('SDK destroyed');
         }
