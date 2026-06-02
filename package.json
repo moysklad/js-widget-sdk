@@ -41,6 +41,8 @@
   },
   "scripts": {
     "build": "rollup -c rollup.config.mjs && cp src/index.d.ts dist/index.d.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "release:assets": "cd dist && zip -r ../dist.zip .",
     "test": "npm run build && jest",
     "prepublishOnly": "npm run build"
@@ -49,6 +51,7 @@
     "@rollup/plugin-terser": "1.0.0",
     "jest": "30.4.1",
     "jest-environment-jsdom": "30.4.1",
+    "prettier": "3.6.2",
     "rollup": "4.60.4"
   }
 }

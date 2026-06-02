@@ -35,8 +35,6 @@ export default [
       name: 'WidgetSDK',
       sourcemap: false
     },
-    plugins: [
-      terser()
-    ]
+    plugins: [terser()]
   }
 ];
