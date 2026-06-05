@@ -7,16 +7,7 @@ const getDocumentHeight = (doc) => {
     return 0;
   }
 
-  const { body, documentElement } = doc;
-
-  return Math.max(
-    body?.scrollHeight ?? 0,
-    documentElement?.scrollHeight ?? 0,
-    body?.offsetHeight ?? 0,
-    documentElement?.offsetHeight ?? 0,
-    body?.getBoundingClientRect?.().height ?? 0,
-    documentElement?.getBoundingClientRect?.().height ?? 0
-  );
+  return Math.ceil(doc.documentElement?.getBoundingClientRect?.().height ?? 0);
 };
 
 export class WidgetSDKInstance {

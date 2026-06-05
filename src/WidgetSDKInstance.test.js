@@ -403,8 +403,8 @@ describe('autoResizeIframe', () => {
 
     mockDocumentDimensions({
       documentElement: {
-        scrollHeight: height,
-        getBoundingClientRect: jest.fn(() => ({ height: 100 }))
+        scrollHeight: 999,
+        getBoundingClientRect: jest.fn(() => ({ height }))
       }
     });
 
@@ -421,7 +421,6 @@ describe('autoResizeIframe', () => {
     expect(parentWindow.postMessage).toHaveBeenCalledTimes(1);
 
     height = 480;
-    document.documentElement.scrollHeight = height;
     jest.advanceTimersByTime(100);
 
     expect(parentWindow.postMessage).toHaveBeenCalledTimes(2);
@@ -448,7 +447,7 @@ describe('autoResizeIframe', () => {
 
     mockDocumentDimensions({
       documentElement: {
-        scrollHeight: height
+        getBoundingClientRect: jest.fn(() => ({ height }))
       }
     });
 
@@ -456,7 +455,6 @@ describe('autoResizeIframe', () => {
 
     dispose();
     height = 400;
-    document.documentElement.scrollHeight = height;
     jest.advanceTimersByTime(200);
 
     expect(parentWindow.postMessage).toHaveBeenCalledTimes(1);
@@ -477,7 +475,7 @@ describe('autoResizeIframe', () => {
 
     mockDocumentDimensions({
       documentElement: {
-        scrollHeight: 250
+        getBoundingClientRect: jest.fn(() => ({ height: 250 }))
       }
     });
 
@@ -510,7 +508,7 @@ describe('autoResizeIframe', () => {
 
     mockDocumentDimensions({
       documentElement: {
-        scrollHeight: height
+        getBoundingClientRect: jest.fn(() => ({ height }))
       }
     });
 
@@ -518,7 +516,6 @@ describe('autoResizeIframe', () => {
     sdk.autoResizeIframe({ intervalMs: 100 });
 
     height = 400;
-    document.documentElement.scrollHeight = height;
     jest.advanceTimersByTime(100);
 
     expect(parentWindow.postMessage).toHaveBeenCalledTimes(3);
@@ -540,7 +537,6 @@ describe('autoResizeIframe', () => {
 
     firstDispose();
     height = 550;
-    document.documentElement.scrollHeight = height;
     jest.advanceTimersByTime(100);
 
     expect(parentWindow.postMessage).toHaveBeenCalledTimes(4);
@@ -552,7 +548,7 @@ describe('autoResizeIframe', () => {
     jest.useRealTimers();
   });
 
-  test('uses maximum available document height sources', () => {
+  test('uses documentElement bounding rect height', () => {
     jest.useFakeTimers();
 
     const parentWindow = { postMessage: jest.fn() };
@@ -564,20 +560,40 @@ describe('autoResizeIframe', () => {
 
     mockDocumentDimensions({
       body: {
-        scrollHeight: 0,
-        offsetHeight: 610,
         getBoundingClientRect: jest.fn(() => ({ height: 590 }))
       },
       documentElement: {
-        scrollHeight: 540,
-        offsetHeight: 530,
         getBoundingClientRect: jest.fn(() => ({ height: 520 }))
       }
     });
 
     const dispose = sdk.autoResizeIframe({ intervalMs: 100 });
 
-    expect(parentWindow.postMessage).toHaveBeenCalledWith({ height: 610 }, '*');
+    expect(parentWindow.postMessage).toHaveBeenCalledWith({ height: 520 }, '*');
+
+    dispose();
+    jest.useRealTimers();
+  });
+
+  test('rounds documentElement bounding rect height up', () => {
+    jest.useFakeTimers();
+
+    const parentWindow = { postMessage: jest.fn() };
+
+    Object.defineProperty(window, 'parent', {
+      configurable: true,
+      value: parentWindow
+    });
+
+    mockDocumentDimensions({
+      documentElement: {
+        getBoundingClientRect: jest.fn(() => ({ height: 520.1 }))
+      }
+    });
+
+    const dispose = sdk.autoResizeIframe({ intervalMs: 100 });
+
+    expect(parentWindow.postMessage).toHaveBeenCalledWith({ height: 521 }, '*');
 
     dispose();
     jest.useRealTimers();
@@ -596,14 +612,13 @@ describe('autoResizeIframe', () => {
 
     mockDocumentDimensions({
       documentElement: {
-        scrollHeight: height
+        getBoundingClientRect: jest.fn(() => ({ height }))
       }
     });
 
     const dispose = sdk.autoResizeIframe({ intervalMs: 0 });
 
     height = 450;
-    document.documentElement.scrollHeight = height;
     jest.advanceTimersByTime(99);
 
     expect(parentWindow.postMessage).toHaveBeenCalledTimes(1);
@@ -634,14 +649,13 @@ describe('autoResizeIframe', () => {
 
     mockDocumentDimensions({
       documentElement: {
-        scrollHeight: height
+        getBoundingClientRect: jest.fn(() => ({ height }))
       }
     });
 
     const dispose = sdk.autoResizeIframe({ intervalMs: 'fast' });
 
     height = 470;
-    document.documentElement.scrollHeight = height;
     jest.advanceTimersByTime(249);
 
     expect(parentWindow.postMessage).toHaveBeenCalledTimes(1);
