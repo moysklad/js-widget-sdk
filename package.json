@@ -1,25 +1,57 @@
 {
   "name": "@moysklad/js-widget-sdk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Widget SDK build setup",
   "license": "MIT",
-  "main": "dist/widget.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moysklad/js-widget-sdk.git"
+  },
+  "homepage": "https://github.com/moysklad/js-widget-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/moysklad/js-widget-sdk/issues"
+  },
+  "keywords": [
+    "moysklad",
+    "widget",
+    "sdk",
+    "iframe"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.mjs"
+    },
+    "./dist/widget.js": "./dist/widget.js",
+    "./dist/widget.min.js": "./dist/widget.min.js"
+  },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "rollup -c rollup.config.mjs",
-    "test": "jest",
+    "build": "rollup -c rollup.config.mjs && cp src/index.d.ts dist/index.d.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "release:assets": "cd dist && zip -r ../dist.zip .",
+    "test": "npm run build && jest",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@rollup/plugin-terser": "1.0.0",
     "jest": "30.4.1",
     "jest-environment-jsdom": "30.4.1",
+    "prettier": "3.6.2",
     "rollup": "4.60.4"
   }
 }

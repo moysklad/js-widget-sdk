@@ -4,13 +4,41 @@
 Дает единый API для запросов (request/response) и событий хоста.
 Протоколы виджетов: https://dev.moysklad.ru/doc/api/vendor/1.0/#vidzhety
 
-## Быстрый старт
-1) Подключите файл SDK в виджете:
-```
-<script src="dist/widget.min.js"></script>
+## Установка
+
+Через npm:
+
+```bash
+npm install @moysklad/js-widget-sdk
 ```
 
-2) Создайте экземпляр и подпишитесь на события:
+Через CDN:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@moysklad/js-widget-sdk/dist/widget.min.js"></script>
+```
+
+## Быстрый старт
+
+### npm / bundler
+
+```js
+import WidgetSDK from '@moysklad/js-widget-sdk';
+
+const sdk = WidgetSDK.create();
+```
+
+### CDN / script tag
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@moysklad/js-widget-sdk/dist/widget.min.js"></script>
+<script>
+  const sdk = WidgetSDK.create();
+</script>
+```
+
+### Подписка на события
+
 ```
 const sdk = WidgetSDK.create();
 
@@ -19,7 +47,8 @@ sdk.onOpen((message) => {
 });
 ```
 
-3) Отправляйте запросы хосту:
+### Отправка запросов хосту
+
 ```
 sdk.showDialog('Учетная запись будет удалена. Вы хотите продолжить?', [
   { name: 'Yes', caption: 'Да, удалить' },
@@ -31,37 +60,52 @@ sdk.showDialog('Учетная запись будет удалена. Вы хо
 ```
 
 ## Структура репозитория
-```
-src/index.js                 entry point
-src/WidgetSDKInstance.js     исходники SDK
 
+```
+src/core.js                  исходники SDK
+src/index.js                 npm entry (ESM/CJS)
+src/browser.js               browser global entry
+src/WidgetSDKInstance.js     совместимый browser entry для тестов/dev
+
+dist/index.mjs               ESM entry для npm
+dist/index.cjs               CommonJS entry для npm
 dist/widget.js               собранный файл
 dist/widget.min.js           минифицированный файл
+dist/index.d.ts              типы
 ```
+
 Папка `dist` генерируется при сборке (`npm run build`) и попадает в релизные артефакты и npm-пакет.
 
-## Установка и сборка
-1) Установить зависимости:
+## Сборка
+
+1. Установить зависимости:
+
 ```
 npm install
 ```
 
-2) Собрать:
+2. Собрать:
+
 ```
 npm run build
 ```
 
 ## Публичное API
+
 Глобальный объект: `WidgetSDK`.
 
 ### Создание экземпляра
+
 ```
 const sdk = WidgetSDK.create({ debug: true });
 ```
+
 Используйте `debug` только при разработке.
 
 ### Методы
+
 Запросы к хосту:
+
 - `selectGoodFolder` — протокол `good-folder-selector`: открывает селектор группы товаров.
 - `showDialog` — протокол `standard-dialogs`: показывает стандартный диалог хоста.
 - `navigateTo` — протокол `navigation-service`: навигация в хосте.
@@ -72,8 +116,10 @@ const sdk = WidgetSDK.create({ debug: true });
 - `closePopup` — закрывает кастомное модальное окно.
 - `update` — протокол `update-provider`: меняет несохраненное состояние документа в хосте.
 - `validationFeedback` — протокол `validation-feedback`: ответ на `Change` о валидности данных.
+- `autoResizeIframe` — автоматически отправляет родительскому окну актуальную высоту контента для изменения высоты iframe.
 
 События и подписки:
+
 - `off` — отписка.
 - `on` — подписка на сообщения хоста.
 - `onChange` — событие `Change` (изменение несохраненного состояния, протокол `change-handler`).
@@ -82,9 +128,11 @@ const sdk = WidgetSDK.create({ debug: true });
 - `onSave` — событие `Save` (сохранение пользователем объекта, протокол `save-handler`).
 
 Жизненный цикл:
+
 - `destroy` — очистка слушателей и активных запросов.
 
 ### Пример работы с событиями
+
 ```
 sdk.on('Change', (message) => {
   console.log('Change', message);
@@ -92,6 +140,7 @@ sdk.on('Change', (message) => {
 ```
 
 или
+
 ```
 const unsubscribe = sdk.on('Change', (message) => {
   console.log('Change', message);
@@ -102,13 +151,16 @@ unsubscribe();
 ```
 
 ## Отправка сообщений и обработка ответов
+
 SDK использует `postMessage`:
+
 - Каждый запрос получает `messageId`.
 - Ответ хоста должен содержать `correlationId`, равный `messageId` запроса.
 - Ответ с `name: 'InvalidMessageError'` превращается в `Error` и отклоняет Promise.
-Список возможных ошибок: https://dev.moysklad.ru/doc/api/vendor/1.0/#oshibki-pri-rabote-s-widzhetami
+  Список возможных ошибок: https://dev.moysklad.ru/doc/api/vendor/1.0/#oshibki-pri-rabote-s-widzhetami
 
 Пример вызова SDK (ShowDialog):
+
 ```
 sdk.showDialog({
   dialogText: 'Привет',
@@ -119,6 +171,7 @@ sdk.showDialog({
 ```
 
 Пример запроса:
+
 ```
 {
   name: 'ShowDialogRequest',
@@ -129,6 +182,7 @@ sdk.showDialog({
 ```
 
 Пример ответа:
+
 ```
 {
   name: 'ShowDialogResponse',
@@ -138,6 +192,7 @@ sdk.showDialog({
 ```
 
 Пример ответа с ошибкой (Promise отклонится):
+
 ```
 {
   name: 'InvalidMessageError',
@@ -147,17 +202,50 @@ sdk.showDialog({
 ```
 
 ## Опции и отладка
+
 - Опции указываются при создании SDK: `createSdk({ debug: true })`.
 - `debug: true` включает логирование в консоль.
 - В проде рекомендуется `debug: false`.
 
 ## Жизненный цикл
+
 Если виджет уничтожается или переинициализируется:
+
 ```
 sdk.destroy();
 ```
+
 Это снимает `message`‑листенер и отклоняет активные запросы.
 
+### Масштабирование высоты главного окна (expand)
+
+Если содержимое главного `iframe` не умещается в минимальную допустимую высоту окна, можно включить автоматическую отправку текущей высоты контента родительскому окну. Родительская страница будет использовать это значение для изменения высоты `iframe`.
+
+Базовое использование:
+
+```js
+const sdk = WidgetSDK.create();
+sdk.autoResizeIframe();
+```
+
+Остановка опроса при необходимости:
+
+```js
+const sdk = WidgetSDK.create();
+const stopAutoResize = sdk.autoResizeIframe();
+
+stopAutoResize();
+```
+
+Поведение:
+
+- вне iframe функция ничего не делает и возвращает no-op `dispose`;
+- внутри iframe сразу отправляет первую высоту, затем повторяет проверку по интервалу;
+- повторный вызов заменяет предыдущий poller на этом экземпляре SDK;
+- `stopAutoResize()` снимает `load`-слушатель и останавливает опрос;
+- `sdk.destroy()` также останавливает этот опрос вместе с остальными ресурсами SDK.
+
 ## Совместимость
+
 SDK рассчитан на браузерное окружение (window/iframe) и `postMessage`.
 Поддерживаемые браузеры: Яндекс.Браузер, Chrome, Opera, Firefox, Safari.

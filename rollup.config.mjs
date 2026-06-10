@@ -1,10 +1,25 @@
 import terser from '@rollup/plugin-terser';
 
-const input = 'src/index.js';
-
 export default [
   {
-    input,
+    input: 'src/index.js',
+    output: {
+      file: 'dist/index.mjs',
+      format: 'esm',
+      sourcemap: false
+    }
+  },
+  {
+    input: 'src/index.js',
+    output: {
+      file: 'dist/index.cjs',
+      format: 'cjs',
+      exports: 'default',
+      sourcemap: false
+    }
+  },
+  {
+    input: 'src/browser.js',
     output: {
       file: 'dist/widget.js',
       format: 'iife',
@@ -13,15 +28,13 @@ export default [
     }
   },
   {
-    input,
+    input: 'src/browser.js',
     output: {
       file: 'dist/widget.min.js',
       format: 'iife',
       name: 'WidgetSDK',
       sourcemap: false
     },
-    plugins: [
-      terser()
-    ]
+    plugins: [terser()]
   }
 ];
