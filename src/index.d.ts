@@ -11,6 +11,14 @@ export interface WidgetSDKCreateOptions {
   debug?: boolean;
 }
 
+export interface RequestOptions {
+  timeoutMs?: number;
+}
+
+export interface UserContextTokenOptions {
+  timeoutMs?: number;
+}
+
 export interface WidgetMessage {
   [key: string]: unknown;
 }
@@ -26,9 +34,13 @@ export declare class WidgetSDKInstance {
   onSave(callback: WidgetListener): () => void;
   onChange(callback: WidgetListener): () => void;
   off(eventName: string, callback: WidgetListener): void;
-  sendRequest(message?: WidgetMessage): Promise<WidgetMessage>;
+  sendRequest(
+    message?: WidgetMessage,
+    options?: RequestOptions
+  ): Promise<WidgetMessage>;
   sendMessage(message?: WidgetMessage): WidgetMessage;
   selectGoodFolder(): Promise<WidgetMessage>;
+  requestUserContextToken(options?: UserContextTokenOptions): Promise<string>;
   showDialog(
     text: string,
     buttons?: ShowDialogButton[]

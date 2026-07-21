@@ -1,6 +1,7 @@
 const getGlobal = () => (typeof window !== 'undefined' ? window : undefined);
 const DEFAULT_AUTO_RESIZE_INTERVAL_MS = 250;
 const MIN_AUTO_RESIZE_INTERVAL_MS = 100;
+const DEFAULT_USER_CONTEXT_TIMEOUT_MS = 10000;
 
 const getDocumentHeight = (doc) => {
   if (!doc) {
@@ -183,20 +184,62 @@ export class WidgetSDKInstance {
     }
   }
 
-  sendRequest(message = {}) {
+  sendRequest(message = {}, options = {}) {
     const global = getGlobal();
 
     message.messageId ??= this._nextMessageId();
     this._log(() => `SDK -> ${JSON.stringify(message)}`);
 
+    const { timeoutMs } = options;
+    const hasTimeout =
+      typeof timeoutMs === 'number' &&
+      Number.isFinite(timeoutMs) &&
+      timeoutMs > 0;
+
     return new Promise((resolve, reject) => {
-      this._pendingRequests.set(message.messageId, { resolve, reject });
+      let timeoutHandle = null;
+
+      const clearTimer = () => {
+        if (timeoutHandle !== null) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+      };
+
+      this._pendingRequests.set(message.messageId, {
+        resolve: (value) => {
+          clearTimer();
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimer();
+          reject(error);
+        }
+      });
+
+      if (hasTimeout) {
+        timeoutHandle = setTimeout(() => {
+          if (!this._pendingRequests.has(message.messageId)) {
+            return;
+          }
+
+          this._pendingRequests.delete(message.messageId);
+
+          const error = new Error(
+            `Request "${message.name || 'unknown'}" timed out after ${timeoutMs} ms`
+          );
+
+          error.name = 'RequestTimeout';
+          reject(error);
+        }, timeoutMs);
+      }
 
       try {
         const target = typeof parent !== 'undefined' ? parent : global;
 
         target.postMessage(message, '*');
       } catch (error) {
+        clearTimer();
         this._log(
           `postMessage error for ${message.name || 'unknown'}: ${error.message}`,
           'warn'
@@ -229,6 +272,37 @@ export class WidgetSDKInstance {
 
   selectGoodFolder() {
     return this.sendRequest({ name: 'SelectGoodFolderRequest' });
+  }
+
+  requestUserContextToken(options = {}) {
+    const { timeoutMs } = options;
+    const resolvedTimeoutMs =
+      typeof timeoutMs === 'number' &&
+      Number.isFinite(timeoutMs) &&
+      timeoutMs > 0
+        ? timeoutMs
+        : DEFAULT_USER_CONTEXT_TIMEOUT_MS;
+
+    return this.sendRequest(
+      { name: 'UserContextRequest' },
+      { timeoutMs: resolvedTimeoutMs }
+    ).then((response) => {
+      const token =
+        response && typeof response.token === 'string' ? response.token : '';
+
+      if (response?.name !== 'UserContextResponse' || token === '') {
+        const error = new Error(
+          'UserContextResponse did not contain a valid token'
+        );
+
+        error.name = 'InvalidUserContextResponse';
+        error.rawMessage = response || null;
+
+        throw error;
+      }
+
+      return token;
+    });
   }
 
   showDialog(text, buttons = [{ name: 'Ok', caption: 'ОК' }]) {

@@ -59,6 +59,23 @@ sdk.showDialog('Учетная запись будет удалена. Вы хо
   });
 ```
 
+### Получение контекста пользователя (UserContext)
+
+Новый протокол передачи контекста: виджет сам запрашивает у хоста одноразовый opaque-токен и передаёт его на свой бэкенд, где обменивает в Vendor API на контекст пользователя. Токен нигде не сохраняется — его нужно сразу отправить на бэкенд.
+
+```
+const token = await sdk.requestUserContextToken();
+
+// передаём токен на свой бэкенд, там он обменивается в Vendor API
+await fetch('/user-context/exchange', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ token })
+});
+```
+
+Если хост не поддерживает протокол или не отвечает, Promise отклоняется по таймауту (по умолчанию 10 с, настраивается через `requestUserContextToken({ timeoutMs })`). Для работы протокола компонент решения в дескрипторе должен объявлять `<uses><user-context/></uses>`.
+
 ## Структура репозитория
 
 ```
@@ -107,6 +124,7 @@ const sdk = WidgetSDK.create({ debug: true });
 Запросы к хосту:
 
 - `selectGoodFolder` — протокол `good-folder-selector`: открывает селектор группы товаров.
+- `requestUserContextToken` — протокол `user-context`: запрашивает у хоста одноразовый opaque-токен для получения контекста пользователя.
 - `showDialog` — протокол `standard-dialogs`: показывает стандартный диалог хоста.
 - `navigateTo` — протокол `navigation-service`: навигация в хосте.
 - `openFeedback` — протокол `open-feedback`: сигнал готовности виджета после `Open`.
