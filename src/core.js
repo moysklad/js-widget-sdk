@@ -231,6 +231,26 @@ export class WidgetSDKInstance {
     return this.sendRequest({ name: 'SelectGoodFolderRequest' });
   }
 
+  requestUserContextToken() {
+    return this.sendRequest({ name: 'UserContextRequest' }).then((response) => {
+      const token =
+        response && typeof response.token === 'string' ? response.token : '';
+
+      if (response?.name !== 'UserContextResponse' || token === '') {
+        const error = new Error(
+          'UserContextResponse did not contain a valid token'
+        );
+
+        error.name = 'InvalidUserContextResponse';
+        error.rawMessage = response || null;
+
+        throw error;
+      }
+
+      return token;
+    });
+  }
+
   showDialog(text, buttons = [{ name: 'Ok', caption: 'ОК' }]) {
     return this.sendRequest({
       name: 'ShowDialogRequest',

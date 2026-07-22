@@ -1068,3 +1068,58 @@ describe('destroy()', () => {
     }
   });
 });
+
+describe('requestUserContextToken', () => {
+  let sdk;
+
+  beforeEach(() => {
+    sdk = window.WidgetSDK.create({ debug: true });
+  });
+
+  afterEach(() => {
+    sdk.destroy();
+  });
+
+  test('resolves with the token from UserContextResponse', async () => {
+    const promise = sdk.requestUserContextToken();
+
+    sdk._handleMessage({
+      data: {
+        correlationId: 1,
+        name: 'UserContextResponse',
+        token: 'opaque-token'
+      }
+    });
+
+    await expect(promise).resolves.toBe('opaque-token');
+    expect(sdk._pendingRequests.size).toBe(0);
+  });
+
+  test('rejects when the response contains an empty token', async () => {
+    const promise = sdk.requestUserContextToken();
+
+    sdk._handleMessage({
+      data: { correlationId: 1, name: 'UserContextResponse', token: '' }
+    });
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'InvalidUserContextResponse'
+    });
+  });
+
+  test('rejects when the host returns an InvalidMessageError', async () => {
+    const promise = sdk.requestUserContextToken();
+
+    sdk._handleMessage({
+      data: {
+        correlationId: 1,
+        name: 'InvalidMessageError',
+        errors: [{ error: 'Protocol not supported' }]
+      }
+    });
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'InvalidMessageError'
+    });
+  });
+});

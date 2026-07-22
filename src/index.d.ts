@@ -29,6 +29,7 @@ export declare class WidgetSDKInstance {
   sendRequest(message?: WidgetMessage): Promise<WidgetMessage>;
   sendMessage(message?: WidgetMessage): WidgetMessage;
   selectGoodFolder(): Promise<WidgetMessage>;
+  requestUserContextToken(): Promise<string>;
   showDialog(
     text: string,
     buttons?: ShowDialogButton[]
