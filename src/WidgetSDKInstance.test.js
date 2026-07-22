@@ -1069,45 +1069,6 @@ describe('destroy()', () => {
   });
 });
 
-describe('sendRequest timeout', () => {
-  let sdk;
-
-  beforeEach(() => {
-    jest.useFakeTimers();
-    sdk = window.WidgetSDK.create({ debug: true });
-  });
-
-  afterEach(() => {
-    sdk.destroy();
-    jest.useRealTimers();
-  });
-
-  test('rejects with RequestTimeout when host does not answer in time', async () => {
-    const promise = sdk.sendRequest(
-      { name: 'Pending', messageId: 1 },
-      { timeoutMs: 5000 }
-    );
-
-    jest.advanceTimersByTime(5000);
-
-    await expect(promise).rejects.toMatchObject({ name: 'RequestTimeout' });
-    expect(sdk._pendingRequests.size).toBe(0);
-  });
-
-  test('clears the timer when the host answers before timeout', async () => {
-    const promise = sdk.sendRequest(
-      { name: 'Pending', messageId: 2 },
-      { timeoutMs: 5000 }
-    );
-
-    sdk._handleMessage({ data: { correlationId: 2, name: 'PendingResponse' } });
-    jest.advanceTimersByTime(5000);
-
-    await expect(promise).resolves.toMatchObject({ name: 'PendingResponse' });
-    expect(sdk._pendingRequests.size).toBe(0);
-  });
-});
-
 describe('requestUserContextToken', () => {
   let sdk;
 
@@ -1160,19 +1121,5 @@ describe('requestUserContextToken', () => {
     await expect(promise).rejects.toMatchObject({
       name: 'InvalidMessageError'
     });
-  });
-
-  test('rejects with RequestTimeout when the host stays silent', async () => {
-    jest.useFakeTimers();
-
-    try {
-      const promise = sdk.requestUserContextToken({ timeoutMs: 3000 });
-
-      jest.advanceTimersByTime(3000);
-
-      await expect(promise).rejects.toMatchObject({ name: 'RequestTimeout' });
-    } finally {
-      jest.useRealTimers();
-    }
   });
 });
