@@ -20,7 +20,12 @@ export type WidgetListener = (message: WidgetMessage) => void;
 export declare class WidgetSDKInstance {
   constructor(options?: WidgetSDKCreateOptions);
   debug: boolean;
+  /**
+   * Subscribes to a host event. For `Open` the last received message is replayed
+   * to a listener that subscribes after it arrived, so the handler must be idempotent.
+   */
   on(eventName: string, callback: WidgetListener): () => void;
+  /** Same as `on('Open', callback)`: replays the last `Open` to a late subscriber. */
   onOpen(callback: WidgetListener): () => void;
   onOpenPopup(callback: WidgetListener): () => void;
   onSave(callback: WidgetListener): () => void;
