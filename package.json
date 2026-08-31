@@ -45,6 +45,7 @@
     "format:check": "prettier --check .",
     "release:assets": "cd dist && zip -r ../dist.zip .",
     "test": "npm run build && jest",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
