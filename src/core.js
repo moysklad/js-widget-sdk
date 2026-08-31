@@ -1,6 +1,10 @@
 const getGlobal = () => (typeof window !== 'undefined' ? window : undefined);
 const DEFAULT_AUTO_RESIZE_INTERVAL_MS = 250;
 const MIN_AUTO_RESIZE_INTERVAL_MS = 100;
+const DEFAULT_USER_CONTEXT_TIMEOUT_MS = 10000;
+const USER_CONTEXT_REQUEST = 'UserContextRequest';
+const USER_CONTEXT_RESPONSE = 'UserContextResponse';
+const REDACTED = '[redacted]';
 
 const getDocumentHeight = (doc) => {
   if (!doc) {
@@ -8,6 +12,55 @@ const getDocumentHeight = (doc) => {
   }
 
   return Math.ceil(doc.documentElement?.getBoundingClientRect?.().height ?? 0);
+};
+
+const setTimer = (callback, delayMs) => {
+  const global = getGlobal();
+  const schedule = global?.setTimeout ?? setTimeout;
+
+  return schedule.call(global ?? undefined, callback, delayMs);
+};
+
+const clearTimer = (timerId) => {
+  if (timerId === null || timerId === undefined) {
+    return;
+  }
+
+  const global = getGlobal();
+  const cancel = global?.clearTimeout ?? clearTimeout;
+
+  cancel.call(global ?? undefined, timerId);
+};
+
+const resolveTimeoutMs = (timeoutMs, fallbackMs) => {
+  if (timeoutMs === undefined || timeoutMs === null) {
+    return fallbackMs;
+  }
+
+  if (
+    typeof timeoutMs !== 'number' ||
+    !Number.isFinite(timeoutMs) ||
+    timeoutMs <= 0
+  ) {
+    const error = new Error(
+      `Invalid timeoutMs option: expected a finite number greater than 0, got ${JSON.stringify(timeoutMs)}`
+    );
+
+    error.name = 'InvalidRequestOptions';
+
+    throw error;
+  }
+
+  return timeoutMs;
+};
+
+// Токен не должен попадать в консоль даже при debug: true.
+const redactSecrets = (message) => {
+  if (!message || typeof message !== 'object' || !('token' in message)) {
+    return message;
+  }
+
+  return { ...message, token: REDACTED };
 };
 
 export class WidgetSDKInstance {
@@ -60,6 +113,19 @@ export class WidgetSDKInstance {
     return ++this._requestIdCounter;
   }
 
+  _takePendingRequest(messageId) {
+    const pending = this._pendingRequests.get(messageId);
+
+    if (!pending) {
+      return null;
+    }
+
+    this._pendingRequests.delete(messageId);
+    clearTimer(pending.timeoutId);
+
+    return pending;
+  }
+
   _detachMessageListener() {
     const global = getGlobal();
 
@@ -97,14 +163,12 @@ export class WidgetSDKInstance {
       return;
     }
 
-    this._log(() => `Host -> ${JSON.stringify(message)}`);
+    this._log(() => `Host -> ${JSON.stringify(redactSecrets(message))}`);
 
     const { correlationId, name } = message;
 
     if (this._pendingRequests.has(correlationId)) {
-      const pending = this._pendingRequests.get(correlationId);
-
-      this._pendingRequests.delete(correlationId);
+      const pending = this._takePendingRequest(correlationId);
 
       name === 'InvalidMessageError'
         ? pending.reject(this._toError(message))
@@ -146,6 +210,20 @@ export class WidgetSDKInstance {
     return err;
   }
 
+  _toTimeoutError(message, timeoutMs) {
+    const requestName = (message && message.name) || 'unknown';
+    const err = new Error(
+      `Host did not respond to ${requestName} within ${timeoutMs} ms`
+    );
+
+    err.name = 'RequestTimeoutError';
+    err.requestName = requestName;
+    err.messageId = message ? (message.messageId ?? null) : null;
+    err.timeoutMs = timeoutMs;
+
+    return err;
+  }
+
   on(eventName, callback) {
     const listeners = this._listeners.get(eventName) || [];
 
@@ -183,14 +261,40 @@ export class WidgetSDKInstance {
     }
   }
 
-  sendRequest(message = {}) {
+  sendRequest(message = {}, options = {}) {
     const global = getGlobal();
+    let timeoutMs;
+
+    try {
+      timeoutMs = resolveTimeoutMs(options.timeoutMs, null);
+    } catch (error) {
+      return Promise.reject(error);
+    }
 
     message.messageId ??= this._nextMessageId();
     this._log(() => `SDK -> ${JSON.stringify(message)}`);
 
     return new Promise((resolve, reject) => {
-      this._pendingRequests.set(message.messageId, { resolve, reject });
+      const { messageId } = message;
+      const pending = { resolve, reject, timeoutId: null };
+
+      this._pendingRequests.set(messageId, pending);
+
+      if (timeoutMs !== null) {
+        pending.timeoutId = setTimer(() => {
+          if (this._pendingRequests.get(messageId) !== pending) {
+            return;
+          }
+
+          this._pendingRequests.delete(messageId);
+          this._log(
+            `Request ${message.name || 'unknown'} timed out after ${timeoutMs} ms`,
+            'warn'
+          );
+
+          reject(this._toTimeoutError(message, timeoutMs));
+        }, timeoutMs);
+      }
 
       try {
         const target = typeof parent !== 'undefined' ? parent : global;
@@ -201,7 +305,7 @@ export class WidgetSDKInstance {
           `postMessage error for ${message.name || 'unknown'}: ${error.message}`,
           'warn'
         );
-        this._pendingRequests.delete(message.messageId);
+        this._takePendingRequest(messageId);
 
         reject(error);
       }
@@ -229,6 +333,55 @@ export class WidgetSDKInstance {
 
   selectGoodFolder() {
     return this.sendRequest({ name: 'SelectGoodFolderRequest' });
+  }
+
+  requestUserContextToken(options = {}) {
+    let timeoutMs;
+
+    try {
+      timeoutMs = resolveTimeoutMs(
+        options.timeoutMs,
+        DEFAULT_USER_CONTEXT_TIMEOUT_MS
+      );
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return this.sendRequest({ name: USER_CONTEXT_REQUEST }, { timeoutMs }).then(
+      (response) => this._extractUserContextToken(response)
+    );
+  }
+
+  _extractUserContextToken(response) {
+    const responseName = response ? response.name : undefined;
+
+    if (responseName !== USER_CONTEXT_RESPONSE) {
+      throw this._toInvalidUserContextResponseError(
+        `Unexpected response to ${USER_CONTEXT_REQUEST}: expected name "${USER_CONTEXT_RESPONSE}", got ${JSON.stringify(responseName ?? null)}`,
+        response
+      );
+    }
+
+    const { token } = response;
+
+    if (typeof token !== 'string' || token.trim() === '') {
+      throw this._toInvalidUserContextResponseError(
+        `${USER_CONTEXT_RESPONSE} must contain a non-empty string token`,
+        response
+      );
+    }
+
+    return token;
+  }
+
+  _toInvalidUserContextResponseError(errText, response) {
+    const err = new Error(errText);
+
+    err.name = 'InvalidUserContextResponseError';
+    err.responseName = response ? (response.name ?? null) : null;
+    err.rawMessage = response ? redactSecrets(response) : null;
+
+    return err;
   }
 
   showDialog(text, buttons = [{ name: 'Ok', caption: 'ОК' }]) {
@@ -420,6 +573,8 @@ export class WidgetSDKInstance {
     this._listeners.clear();
     this._pendingRequests.forEach((pending) => {
       try {
+        clearTimer(pending.timeoutId);
+
         const err = new Error('SDK destroyed');
 
         err.name = 'SDKDestroyed';

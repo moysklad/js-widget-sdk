@@ -1068,3 +1068,357 @@ describe('destroy()', () => {
     }
   });
 });
+
+describe('таймауты sendRequest', () => {
+  let sdk;
+  let postMessageSpy;
+
+  beforeEach(() => {
+    sdk = window.WidgetSDK.create({ debug: true });
+    postMessageSpy = jest
+      .spyOn(window, 'postMessage')
+      .mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    sdk.destroy();
+    postMessageSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  test('без timeoutMs запрос остаётся в ожидании', async () => {
+    jest.useFakeTimers();
+
+    const promise = sdk.sendRequest({ name: 'UpdateRequest' });
+
+    jest.advanceTimersByTime(60000);
+
+    expect(sdk._pendingRequests.size).toBe(1);
+    expect(jest.getTimerCount()).toBe(0);
+
+    sdk.destroy();
+    await expect(promise).rejects.toMatchObject({ name: 'SDKDestroyed' });
+  });
+
+  test('по истечении timeoutMs отклоняет запрос ошибкой RequestTimeoutError', async () => {
+    jest.useFakeTimers();
+
+    const promise = sdk.sendRequest(
+      { name: 'UpdateRequest', messageId: 42 },
+      { timeoutMs: 500 }
+    );
+    const rejection = expect(promise).rejects.toMatchObject({
+      name: 'RequestTimeoutError',
+      requestName: 'UpdateRequest',
+      messageId: 42,
+      timeoutMs: 500
+    });
+
+    jest.advanceTimersByTime(499);
+    expect(sdk._pendingRequests.size).toBe(1);
+
+    jest.advanceTimersByTime(1);
+    await rejection;
+
+    expect(sdk._pendingRequests.size).toBe(0);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test('некорректный timeoutMs отклоняется без отправки сообщения', async () => {
+    await expect(
+      sdk.sendRequest({ name: 'UpdateRequest' }, { timeoutMs: 0 })
+    ).rejects.toMatchObject({ name: 'InvalidRequestOptions' });
+
+    expect(postMessageSpy).not.toHaveBeenCalled();
+    expect(sdk._pendingRequests.size).toBe(0);
+  });
+});
+
+describe('requestUserContextToken', () => {
+  let sdk;
+  let postMessageSpy;
+
+  const sentRequests = () =>
+    postMessageSpy.mock.calls.map(([message]) => message);
+  const lastRequest = () => sentRequests()[sentRequests().length - 1];
+  const respond = (message) => sdk._handleMessage({ data: message });
+  const respondWith = (payload) =>
+    respond({ correlationId: lastRequest().messageId, ...payload });
+
+  beforeEach(() => {
+    sdk = window.WidgetSDK.create({ debug: true });
+    postMessageSpy = jest
+      .spyOn(window, 'postMessage')
+      .mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    sdk.destroy();
+    postMessageSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  test('отправляет UserContextRequest и возвращает токен из ответа', async () => {
+    const promise = sdk.requestUserContextToken();
+    const request = lastRequest();
+
+    expect(postMessageSpy).toHaveBeenCalledTimes(1);
+    expect(request.name).toBe('UserContextRequest');
+    expect(typeof request.messageId).toBe('number');
+    expect(request.token).toBeUndefined();
+
+    respondWith({ name: 'UserContextResponse', token: 'opaque-token' });
+
+    await expect(promise).resolves.toBe('opaque-token');
+    expect(sdk._pendingRequests.size).toBe(0);
+  });
+
+  test('не логирует токен даже при debug: true', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      const promise = sdk.requestUserContextToken();
+
+      respondWith({ name: 'UserContextResponse', token: 'super-secret' });
+
+      await expect(promise).resolves.toBe('super-secret');
+
+      const logged = logSpy.mock.calls
+        .map((args) => args.map(String).join(' '))
+        .join('\n');
+
+      expect(logged).toContain('UserContextResponse');
+      expect(logged).toContain('[redacted]');
+      expect(logged).not.toContain('super-secret');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test.each([
+    ['неожиданным именем ответа', { name: 'SomethingElse', token: 'x' }],
+    ['ответом без токена', { name: 'UserContextResponse' }],
+    ['пустым токеном', { name: 'UserContextResponse', token: '' }],
+    ['токеном из пробелов', { name: 'UserContextResponse', token: '   ' }],
+    ['нестроковым токеном', { name: 'UserContextResponse', token: 42 }]
+  ])('отклоняет ответ хоста с %s', async (_label, payload) => {
+    const promise = sdk.requestUserContextToken();
+
+    respondWith(payload);
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'InvalidUserContextResponseError'
+    });
+    expect(sdk._pendingRequests.size).toBe(0);
+  });
+
+  test('в ошибке указывает фактическое имя ответа вместо UserContextResponse', async () => {
+    const promise = sdk.requestUserContextToken();
+
+    respondWith({ name: 'SelectGoodFolderResponse', token: 'leaky-token' });
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'InvalidUserContextResponseError',
+      responseName: 'SelectGoodFolderResponse',
+      message: expect.stringContaining('SelectGoodFolderResponse'),
+      rawMessage: expect.objectContaining({ token: '[redacted]' })
+    });
+  });
+
+  test('сохраняет детали InvalidMessageError от хоста', async () => {
+    const promise = sdk.requestUserContextToken();
+    const errors = [
+      { error: 'Protocol user-context is not supported by the component' }
+    ];
+
+    respondWith({ name: 'InvalidMessageError', errors });
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'InvalidMessageError',
+      message: 'Protocol user-context is not supported by the component',
+      details: errors
+    });
+    expect(sdk._pendingRequests.size).toBe(0);
+  });
+
+  test('по истечении таймаута по умолчанию отклоняет запрос ошибкой RequestTimeoutError', async () => {
+    jest.useFakeTimers();
+
+    const promise = sdk.requestUserContextToken();
+    const { messageId } = lastRequest();
+    const rejection = expect(promise).rejects.toMatchObject({
+      name: 'RequestTimeoutError',
+      requestName: 'UserContextRequest',
+      messageId,
+      timeoutMs: 10000
+    });
+
+    jest.advanceTimersByTime(9999);
+    expect(sdk._pendingRequests.size).toBe(1);
+
+    jest.advanceTimersByTime(1);
+    await rejection;
+
+    expect(sdk._pendingRequests.size).toBe(0);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test('учитывает переопределение timeoutMs', async () => {
+    jest.useFakeTimers();
+
+    const promise = sdk.requestUserContextToken({ timeoutMs: 50 });
+    const rejection = expect(promise).rejects.toMatchObject({
+      name: 'RequestTimeoutError',
+      timeoutMs: 50
+    });
+
+    jest.advanceTimersByTime(49);
+    expect(sdk._pendingRequests.size).toBe(1);
+
+    jest.advanceTimersByTime(1);
+    await rejection;
+  });
+
+  test('игнорирует ответ, пришедший после таймаута', async () => {
+    jest.useFakeTimers();
+
+    const promise = sdk.requestUserContextToken({ timeoutMs: 100 });
+    const rejection = expect(promise).rejects.toMatchObject({
+      name: 'RequestTimeoutError'
+    });
+
+    jest.advanceTimersByTime(100);
+    await rejection;
+
+    expect(() =>
+      respondWith({ name: 'UserContextResponse', token: 'late-token' })
+    ).not.toThrow();
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'RequestTimeoutError'
+    });
+    expect(sdk._pendingRequests.size).toBe(0);
+  });
+
+  test('снимает таймер таймаута сразу после ответа', async () => {
+    jest.useFakeTimers();
+
+    const promise = sdk.requestUserContextToken({ timeoutMs: 100 });
+
+    respondWith({ name: 'UserContextResponse', token: 'in-time' });
+
+    await expect(promise).resolves.toBe('in-time');
+    expect(jest.getTimerCount()).toBe(0);
+
+    jest.advanceTimersByTime(1000);
+    expect(sdk._pendingRequests.size).toBe(0);
+  });
+
+  test.each([[0], [-5], [Number.NaN], [Number.POSITIVE_INFINITY], ['1000']])(
+    'некорректный timeoutMs=%p отклоняется без отправки запроса',
+    async (timeoutMs) => {
+      await expect(
+        sdk.requestUserContextToken({ timeoutMs })
+      ).rejects.toMatchObject({ name: 'InvalidRequestOptions' });
+
+      expect(postMessageSpy).not.toHaveBeenCalled();
+      expect(sdk._pendingRequests.size).toBe(0);
+    }
+  );
+
+  test('параллельные запросы резолвятся независимо', async () => {
+    const first = sdk.requestUserContextToken();
+    const second = sdk.requestUserContextToken();
+    const [firstRequest, secondRequest] = sentRequests();
+
+    expect(secondRequest.messageId).not.toBe(firstRequest.messageId);
+    expect(sdk._pendingRequests.size).toBe(2);
+
+    respond({
+      name: 'UserContextResponse',
+      correlationId: secondRequest.messageId,
+      token: 'second-token'
+    });
+    respond({
+      name: 'UserContextResponse',
+      correlationId: firstRequest.messageId,
+      token: 'first-token'
+    });
+
+    await expect(second).resolves.toBe('second-token');
+    await expect(first).resolves.toBe('first-token');
+    expect(sdk._pendingRequests.size).toBe(0);
+  });
+
+  test('один параллельный запрос может истечь по таймауту, второй — успешно завершиться', async () => {
+    jest.useFakeTimers();
+
+    const failing = sdk.requestUserContextToken({ timeoutMs: 100 });
+    const succeeding = sdk.requestUserContextToken({ timeoutMs: 1000 });
+    const [failingRequest, succeedingRequest] = sentRequests();
+    const rejection = expect(failing).rejects.toMatchObject({
+      name: 'RequestTimeoutError',
+      messageId: failingRequest.messageId
+    });
+
+    respond({
+      name: 'UserContextResponse',
+      correlationId: succeedingRequest.messageId,
+      token: 'fresh-token'
+    });
+
+    await expect(succeeding).resolves.toBe('fresh-token');
+
+    jest.advanceTimersByTime(100);
+    await rejection;
+
+    expect(sdk._pendingRequests.size).toBe(0);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test('поддерживает повторные последовательные запросы', async () => {
+    const tokens = ['token-1', 'token-2', 'token-3'];
+
+    for (const token of tokens) {
+      const promise = sdk.requestUserContextToken();
+
+      respondWith({ name: 'UserContextResponse', token });
+
+      await expect(promise).resolves.toBe(token);
+    }
+
+    const messageIds = sentRequests().map((request) => request.messageId);
+
+    expect(messageIds).toHaveLength(tokens.length);
+    expect(new Set(messageIds).size).toBe(tokens.length);
+    expect(sdk._pendingRequests.size).toBe(0);
+  });
+
+  test('ошибка одного запроса не влияет на следующий', async () => {
+    const failing = sdk.requestUserContextToken();
+
+    respondWith({ name: 'UserContextResponse', token: '' });
+
+    await expect(failing).rejects.toMatchObject({
+      name: 'InvalidUserContextResponseError'
+    });
+
+    const retried = sdk.requestUserContextToken();
+
+    respondWith({ name: 'UserContextResponse', token: 'retry-token' });
+
+    await expect(retried).resolves.toBe('retry-token');
+  });
+
+  test('destroy отклоняет ожидающий запрос и снимает его таймер', async () => {
+    jest.useFakeTimers();
+
+    const promise = sdk.requestUserContextToken({ timeoutMs: 100 });
+
+    sdk.destroy();
+
+    await expect(promise).rejects.toMatchObject({ name: 'SDKDestroyed' });
+    expect(jest.getTimerCount()).toBe(0);
+    expect(() => jest.advanceTimersByTime(1000)).not.toThrow();
+  });
+});

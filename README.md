@@ -59,6 +59,82 @@ sdk.showDialog('Учетная запись будет удалена. Вы хо
   });
 ```
 
+### Получение контекста пользователя (UserContext)
+
+Виджет сам запрашивает у хоста одноразовый opaque-токен и передает его на свой бэкенд, где обменивает в Vendor API на контекст пользователя.
+
+```js
+const token = await sdk.requestUserContextToken();
+
+// передаем токен на свой бэкенд, там он обменивается в Vendor API
+await fetch('/user-context/exchange', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ token })
+});
+```
+
+Требование к дескриптору: компонент решения должен объявлять протокол `user-context`, иначе хост ответит `InvalidMessageError`.
+
+```xml
+<uses>
+  <user-context/>
+</uses>
+```
+
+Как устроен обмен:
+
+```
+widget -> host: { name: 'UserContextRequest', messageId: 1 }
+host -> widget: { name: 'UserContextResponse', correlationId: 1, token: '<opaque-token>' }
+```
+
+Правила безопасной передачи токена:
+
+- передавайте токен **только в теле** запроса (POST body) — не в query-параметрах и не в заголовках, чтобы он не попал в логи, историю браузера и `Referer`;
+- токен **одноразовый** и с коротким сроком жизни — на каждый обмен запрашивайте новый;
+- нигде его не сохраняйте: SDK держит токен только в памяти и возвращает его через Promise, не пишет ни в `localStorage`, ни в `sessionStorage`, ни в куки;
+- обмен в Vendor API делайте **только с бэкенда** (там vendor-JWT), не из браузера;
+- `debug: true` не логирует значение токена — в консоли вместо него будет `[redacted]`.
+
+Таймаут ожидания ответа хоста обязателен: по умолчанию 10000 мс. Значение можно переопределить:
+
+```js
+const token = await sdk.requestUserContextToken({ timeoutMs: 3000 });
+```
+
+По истечении таймаута запрос удаляется из очереди ожидания и Promise отклоняется — поздний ответ хоста уже не разрешит этот Promise.
+
+Ошибки `requestUserContextToken()` (различаются по `error.name`):
+
+| `error.name`                      | Когда возникает                                                                                                                                       |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RequestTimeoutError`             | Хост не ответил за `timeoutMs`. Поля: `requestName`, `messageId`, `timeoutMs`.                                                                        |
+| `InvalidMessageError`             | Ответ хоста об ошибке: протокол `user-context` не поддерживается хостом, не объявлен `<user-context/>` в дескрипторе и т.п. Текст формирует хост.     |
+| `InvalidUserContextResponseError` | Ответ пришел, но не соответствует протоколу: другое `name` или `token` не является непустой строкой. Поля: `responseName`, `rawMessage` (без токена). |
+| `InvalidRequestOptions`           | Некорректная опция `timeoutMs` (не число, `NaN`, `Infinity`, `0` или отрицательное значение). Запрос хосту не отправляется.                           |
+| `SDKDestroyed`                    | Во время ожидания ответа был вызван `sdk.destroy()`.                                                                                                  |
+
+Диагностика `InvalidMessageError`: текст ошибки приходит от хоста и доступен в `error.message`, полный список ошибок хоста — в `error.details` (массив `errors` из сообщения) и `error.rawMessage`. Типичная причина — отсутствие `<uses><user-context/></uses>` в дескрипторе решения либо запрос протокола из компонента, для которого он не объявлен. Список возможных ошибок: https://dev.moysklad.ru/doc/api/vendor/1.0/#oshibki-pri-rabote-s-widzhetami
+
+```js
+try {
+  const token = await sdk.requestUserContextToken();
+} catch (error) {
+  if (error.name === 'RequestTimeoutError') {
+    // хост не ответил, можно повторить запрос
+  } else if (error.name === 'InvalidMessageError') {
+    console.warn(
+      'Host rejected UserContextRequest:',
+      error.message,
+      error.details
+    );
+  }
+}
+```
+
+Проверка `event.origin` в SDK намеренно не выполняется: хост может размещаться на разных доменах. Безопасность обеспечивается одноразовостью токена и его проверкой на стороне сервера при обмене в Vendor API.
+
 ## Структура репозитория
 
 ```
@@ -107,6 +183,7 @@ const sdk = WidgetSDK.create({ debug: true });
 Запросы к хосту:
 
 - `selectGoodFolder` — протокол `good-folder-selector`: открывает селектор группы товаров.
+- `requestUserContextToken` — протокол `user-context`: запрашивает у хоста одноразовый opaque-токен для получения контекста пользователя.
 - `showDialog` — протокол `standard-dialogs`: показывает стандартный диалог хоста.
 - `navigateTo` — протокол `navigation-service`: навигация в хосте.
 - `openFeedback` — протокол `open-feedback`: сигнал готовности виджета после `Open`.
@@ -158,6 +235,7 @@ SDK использует `postMessage`:
 - Ответ хоста должен содержать `correlationId`, равный `messageId` запроса.
 - Ответ с `name: 'InvalidMessageError'` превращается в `Error` и отклоняет Promise.
   Список возможных ошибок: https://dev.moysklad.ru/doc/api/vendor/1.0/#oshibki-pri-rabote-s-widzhetami
+- `sdk.sendRequest(message, { timeoutMs })` позволяет ограничить время ожидания ответа: по таймауту запрос удаляется из очереди ожидания и Promise отклоняется ошибкой `RequestTimeoutError`. Без опции `timeoutMs` поведение прежнее — SDK ждет ответ хоста без ограничения по времени.
 
 Пример вызова SDK (ShowDialog):
 
