@@ -217,6 +217,85 @@ describe('subscription helpers (on*/off)', () => {
     expect(changeHandler).not.toHaveBeenCalled();
   });
 
+  test('late Open listener receives the last Open message', () => {
+    const openMsg = { name: 'Open', messageId: 1, objectContext: { id: 'x' } };
+
+    sdk._handleMessage({ data: openMsg });
+
+    const lateHandler = jest.fn();
+    sdk.onOpen(lateHandler);
+
+    expect(lateHandler).toHaveBeenCalledTimes(1);
+    expect(lateHandler).toHaveBeenCalledWith(openMsg);
+    expect(sdk.openFeedback()).toMatchObject({
+      name: 'OpenFeedback',
+      correlationId: 1
+    });
+  });
+
+  test('only the last Open is replayed and other events are not', () => {
+    sdk._handleMessage({ data: { name: 'Open', messageId: 1 } });
+    sdk._handleMessage({ data: { name: 'Open', messageId: 2 } });
+    sdk._handleMessage({ data: { name: 'Change', messageId: 3 } });
+    sdk._handleMessage({ data: { name: 'OpenPopup', messageId: 4 } });
+    sdk._handleMessage({ data: { name: 'Save', messageId: 5 } });
+
+    const openHandler = jest.fn();
+    const changeHandler = jest.fn();
+    const popupHandler = jest.fn();
+    const saveHandler = jest.fn();
+
+    sdk.onOpen(openHandler);
+    sdk.onChange(changeHandler);
+    sdk.onOpenPopup(popupHandler);
+    sdk.onSave(saveHandler);
+
+    expect(openHandler).toHaveBeenCalledTimes(1);
+    expect(openHandler).toHaveBeenCalledWith({ name: 'Open', messageId: 2 });
+    expect(changeHandler).not.toHaveBeenCalled();
+    expect(popupHandler).not.toHaveBeenCalled();
+    expect(saveHandler).not.toHaveBeenCalled();
+  });
+
+  test('replay does not happen twice for the same callback and is cleared by destroy', () => {
+    const handler = jest.fn();
+
+    sdk._handleMessage({ data: { name: 'Open', messageId: 1 } });
+
+    sdk.onOpen(handler);
+    sdk.onOpen(handler);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    sdk.destroy();
+    sdk = window.WidgetSDK.create({ debug: true });
+
+    const afterDestroy = jest.fn();
+    sdk.onOpen(afterDestroy);
+
+    expect(afterDestroy).not.toHaveBeenCalled();
+  });
+
+  test('errors of a replayed listener are caught and logged', () => {
+    sdk._handleMessage({ data: { name: 'Open', messageId: 1 } });
+
+    const logSpy = jest.spyOn(sdk, '_log');
+    const erroringListener = jest.fn(() => {
+      throw new Error('boom');
+    });
+
+    try {
+      expect(() => sdk.onOpen(erroringListener)).not.toThrow();
+      expect(erroringListener).toHaveBeenCalledTimes(1);
+      expect(logSpy).toHaveBeenCalledWith(
+        'Listener error for Open: boom',
+        'warn'
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   test('off removes the specified listener', () => {
     const handlerOne = jest.fn();
     const handlerTwo = jest.fn();
