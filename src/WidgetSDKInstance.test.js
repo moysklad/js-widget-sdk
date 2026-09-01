@@ -1212,7 +1212,8 @@ describe('requestUserContextToken', () => {
     respondWith({ name: 'UserContextResponse', token: 'token-2' });
     await expect(second).resolves.toBe('token-2');
 
-    const messageIds = postMessageSpy.mock.calls.map(([message]) => message.messageId);
+    const messageIds = postMessageSpy.mock.calls
+      .map(([message]) => message.messageId);
     expect(new Set(messageIds).size).toBe(2);
   });
 });
