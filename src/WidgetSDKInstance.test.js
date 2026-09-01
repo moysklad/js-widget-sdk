@@ -1068,3 +1068,152 @@ describe('destroy()', () => {
     }
   });
 });
+
+describe('requestUserContextToken', () => {
+  let sdk;
+  let postMessageSpy;
+
+  const lastRequest = () => postMessageSpy.mock.calls.at(-1)[0];
+  const respondWith = (payload) =>
+    sdk._handleMessage({
+      data: { correlationId: lastRequest().messageId, ...payload }
+    });
+
+  beforeEach(() => {
+    sdk = window.WidgetSDK.create({ debug: true });
+    postMessageSpy = jest
+      .spyOn(window, 'postMessage')
+      .mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    sdk.destroy();
+    postMessageSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  test('sendRequest без timeoutMs не ставит таймер', async () => {
+    jest.useFakeTimers();
+
+    const promise = sdk.sendRequest({ name: 'UpdateRequest' });
+
+    jest.advanceTimersByTime(60000);
+
+    expect(sdk._pendingRequests.size).toBe(1);
+    expect(jest.getTimerCount()).toBe(0);
+
+    sdk.destroy();
+    await expect(promise).rejects.toMatchObject({ name: 'SDKDestroyed' });
+  });
+
+  test('отправляет UserContextRequest и возвращает токен', async () => {
+    const promise = sdk.requestUserContextToken();
+    const request = lastRequest();
+
+    expect(request).toMatchObject({ name: 'UserContextRequest' });
+    expect(typeof request.messageId).toBe('number');
+
+    respondWith({ name: 'UserContextResponse', token: 'opaque-token' });
+
+    await expect(promise).resolves.toBe('opaque-token');
+    expect(sdk._pendingRequests.size).toBe(0);
+  });
+
+  test('не пишет токен в debug-логи', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      const promise = sdk.requestUserContextToken();
+
+      respondWith({ name: 'UserContextResponse', token: 'super-secret' });
+
+      await expect(promise).resolves.toBe('super-secret');
+
+      const logged = logSpy.mock.calls
+        .map((args) => args.map(String).join(' '))
+        .join('\n');
+
+      expect(logged).toContain('[redacted]');
+      expect(logged).not.toContain('super-secret');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test.each([
+    [{ name: 'SomethingElse', token: 'x' }],
+    [{ name: 'UserContextResponse' }],
+    [{ name: 'UserContextResponse', token: '' }],
+    [{ name: 'UserContextResponse', token: '   ' }],
+    [{ name: 'UserContextResponse', token: 42 }]
+  ])('отклоняет ответ без валидного токена: %j', async (payload) => {
+    const promise = sdk.requestUserContextToken();
+
+    respondWith(payload);
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'InvalidUserContextResponseError'
+    });
+  });
+
+  test('пробрасывает InvalidMessageError хоста', async () => {
+    const promise = sdk.requestUserContextToken();
+    const errors = [
+      { error: 'Protocol user-context is not supported by the component' }
+    ];
+
+    respondWith({ name: 'InvalidMessageError', errors });
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'InvalidMessageError',
+      message: 'Protocol user-context is not supported by the component',
+      details: errors
+    });
+  });
+
+  test('таймаут по умолчанию отклоняет запрос', async () => {
+    jest.useFakeTimers();
+
+    const promise = sdk.requestUserContextToken();
+    const rejection = expect(promise).rejects.toMatchObject({
+      name: 'RequestTimeoutError',
+      timeoutMs: 10000
+    });
+
+    jest.advanceTimersByTime(9999);
+    expect(sdk._pendingRequests.size).toBe(1);
+
+    jest.advanceTimersByTime(1);
+    await rejection;
+
+    expect(sdk._pendingRequests.size).toBe(0);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test('таймаут можно задать через timeoutMs', async () => {
+    jest.useFakeTimers();
+
+    const promise = sdk.requestUserContextToken({ timeoutMs: 50 });
+    const rejection = expect(promise).rejects.toMatchObject({
+      name: 'RequestTimeoutError',
+      timeoutMs: 50
+    });
+
+    jest.advanceTimersByTime(50);
+    await rejection;
+  });
+
+  test('повторный запрос получает новый токен', async () => {
+    const first = sdk.requestUserContextToken();
+    respondWith({ name: 'UserContextResponse', token: 'token-1' });
+    await expect(first).resolves.toBe('token-1');
+
+    const second = sdk.requestUserContextToken();
+    respondWith({ name: 'UserContextResponse', token: 'token-2' });
+    await expect(second).resolves.toBe('token-2');
+
+    const messageIds = postMessageSpy.mock.calls
+      .map(([message]) => message.messageId);
+    expect(new Set(messageIds).size).toBe(2);
+  });
+});
