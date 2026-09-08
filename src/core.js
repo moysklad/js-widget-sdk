@@ -23,6 +23,7 @@ export class WidgetSDKInstance {
     this._messageListenerActive = false;
     this._lastOpenMessageId = null;
     this._lastChangeMessageId = null;
+    this._lastOpenMessage = null;
 
     this._handleMessage = this._handleMessage.bind(this);
 
@@ -115,6 +116,7 @@ export class WidgetSDKInstance {
 
     if (name === 'Open') {
       this._lastOpenMessageId = message.messageId;
+      this._lastOpenMessage = message;
     } else if (name === 'Change') {
       this._lastChangeMessageId = message.messageId;
     }
@@ -123,12 +125,16 @@ export class WidgetSDKInstance {
       const listeners = this._listeners.get(name);
 
       listeners.forEach((listener) => {
-        try {
-          listener(message);
-        } catch (error) {
-          this._log(`Listener error for ${name}: ${error.message}`, 'warn');
-        }
+        this._callListener(name, listener, message);
       });
+    }
+  }
+
+  _callListener(name, listener, message) {
+    try {
+      listener(message);
+    } catch (error) {
+      this._log(`Listener error for ${name}: ${error.message}`, 'warn');
     }
   }
 
@@ -153,6 +159,14 @@ export class WidgetSDKInstance {
       listeners.push(callback);
 
       this._listeners.set(eventName, listeners);
+
+      // Host sends `Open` right after the iframe loads, often before the widget
+      // has mounted its UI and subscribed. Replay the last `Open` to a late
+      // listener so it can still send `OpenFeedback` and read the context.
+      if (eventName === 'Open' && this._lastOpenMessage) {
+        this._log(() => `Replaying last Open to a late listener`);
+        this._callListener(eventName, callback, this._lastOpenMessage);
+      }
     }
 
     return () => this.off(eventName, callback);
@@ -418,6 +432,7 @@ export class WidgetSDKInstance {
   destroy() {
     this._disposeAutoResizeIframe();
     this._listeners.clear();
+    this._lastOpenMessage = null;
     this._pendingRequests.forEach((pending) => {
       try {
         const err = new Error('SDK destroyed');
