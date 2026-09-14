@@ -2,6 +2,20 @@
 
 Все существенные изменения в этом проекте будут отражаться в этом файле.
 
+## [1.3.0] - 2026-09-11
+
+### Добавлено
+
+- Добавлен метод `sdk.requestUserContextToken()` для протокола `user-context`: виджет запрашивает у хоста одноразовый opaque-токен (`UserContextRequest` → `UserContextResponse`) и обменивает его на контекст пользователя в Vendor API со своего бэкенда.
+- Добавлен обязательный таймаут ожидания ответа для `requestUserContextToken()`: по умолчанию 10000 мс, переопределяется опцией `{ timeoutMs }`. По истечении таймаута запрос удаляется из очереди ожидания, а Promise отклоняется ошибкой `RequestTimeoutError`.
+- Добавлена опциональная поддержка таймаута в `sdk.sendRequest(message, { timeoutMs })`.
+- Добавлены TypeScript-декларации `RequestUserContextTokenOptions`, `SendRequestOptions` и типы ошибок SDK (`RequestTimeoutError`, `InvalidUserContextResponseError`, `InvalidMessageError`, `InvalidRequestOptionsError`, `SDKDestroyedError`).
+
+### Изменено
+
+- Значение `token` больше не попадает в отладочные логи и в `rawMessage` ошибок — вместо него подставляется `[redacted]`.
+- `sdk.destroy()` дополнительно снимает таймеры таймаутов активных запросов.
+
 ## [1.2.0] - 2026-08-31
 
 ### Изменено
