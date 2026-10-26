@@ -27,8 +27,6 @@ jobs:
       - name: Check release versions
         id: release
         run: node scripts/release.cjs validate "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
-      - name: Install npm with trusted publishing support
-        run: npm install --global npm@11.21.1 --registry=https://registry.npmjs.org
       - run: npm ci
       - run: npm test -- --runInBand
       - run: npm run release:assets
