@@ -5,33 +5,58 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
+      id-token: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
+      - name: Check release versions
+        id: release
+        run: node scripts/release.cjs validate "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
       - run: npm ci
-      - name: Check tag matches package version
-        run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
-
-          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
-            echo "Tag version ($TAG_VERSION) does not match package.json version ($PACKAGE_VERSION)"
-            exit 1
-          fi
       - run: npm test -- --runInBand
       - run: npm run release:assets
-      - run: npm pack
+      - name: Pack tested npm artifact
+        id: pack
+        run: |
+          npm pack --ignore-scripts --json > "$RUNNER_TEMP/npm-pack.json"
+          TARBALL=$(node -p "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8'))[0].filename" "$RUNNER_TEMP/npm-pack.json")
+          test -f "$TARBALL"
+          test -f dist.zip
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+      - name: Check whether npm version is already published
+        id: npm
+        run: |
+          PUBLISHED=$(node scripts/release.cjs published)
+          echo "published=$PUBLISHED" >> "$GITHUB_OUTPUT"
+          if [ "$PUBLISHED" = "true" ]; then
+            echo "Version already exists in npm; skipping publication and continuing GitHub Release." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish npm artifact with OIDC
+        if: steps.npm.outputs.published == 'false'
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+          NPM_TAG: ${{ steps.release.outputs.npm_tag }}
+        run: npm publish "./$TARBALL" --access public --tag "$NPM_TAG" --registry=https://registry.npmjs.org
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          prerelease: ${{ steps.release.outputs.prerelease == 'true' }}
+          fail_on_unmatched_files: true
           files: |
             dist.zip
-            moysklad-js-widget-sdk-*.tgz
+            ${{ steps.pack.outputs.tarball }}
