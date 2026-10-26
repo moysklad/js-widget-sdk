@@ -4,8 +4,14 @@ const childProcess = require('node:child_process');
 const REGISTRY = 'https://registry.npmjs.org';
 
 function validateReleaseVersion(tag, packageJson, packageLock) {
-  if (!/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(tag)) {
-    throw new Error(`Expected a stable release tag vX.Y.Z, received: ${tag}`);
+  const match =
+    /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.(0|[1-9]\d*))?$/.exec(
+      tag
+    );
+  if (!match) {
+    throw new Error(
+      `Expected a release tag vX.Y.Z or vX.Y.Z-rc.N, received: ${tag}`
+    );
   }
 
   const version = tag.slice(1);
@@ -24,7 +30,8 @@ function validateReleaseVersion(tag, packageJson, packageLock) {
     }
   }
 
-  return version;
+  const prerelease = match[4] !== undefined;
+  return { version, npmTag: prerelease ? 'rc' : 'latest', prerelease };
 }
 
 function isVersionPublished(name, version) {
@@ -78,9 +85,14 @@ if (require.main === module) {
 
     if (command === 'validate') {
       const packageLock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
-      console.log(
-        validateReleaseVersion(process.argv[3], packageJson, packageLock)
+      const release = validateReleaseVersion(
+        process.argv[3],
+        packageJson,
+        packageLock
       );
+      console.log(`version=${release.version}`);
+      console.log(`npm_tag=${release.npmTag}`);
+      console.log(`prerelease=${release.prerelease}`);
     } else if (command === 'published') {
       console.log(isVersionPublished(packageJson.name, packageJson.version));
     } else {

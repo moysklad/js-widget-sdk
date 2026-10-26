@@ -25,7 +25,8 @@ jobs:
           package-manager-cache: false
 
       - name: Check release versions
-        run: node scripts/release.cjs validate "$GITHUB_REF_NAME"
+        id: release
+        run: node scripts/release.cjs validate "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
       - name: Install npm with trusted publishing support
         run: npm install --global npm@11.21.1 --registry=https://registry.npmjs.org
       - run: npm ci
@@ -51,10 +52,12 @@ jobs:
         if: steps.npm.outputs.published == 'false'
         env:
           TARBALL: ${{ steps.pack.outputs.tarball }}
-        run: npm publish "./$TARBALL" --access public --tag latest --registry=https://registry.npmjs.org
+          NPM_TAG: ${{ steps.release.outputs.npm_tag }}
+        run: npm publish "./$TARBALL" --access public --tag "$NPM_TAG" --registry=https://registry.npmjs.org
 
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          prerelease: ${{ steps.release.outputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
           files: |
             dist.zip

@@ -15,10 +15,35 @@ describe('release versions', () => {
     packageLock = { version: '1.3.0', packages: { '': { version: '1.3.0' } } };
   });
 
-  test('accepts matching package, lockfile and stable tag versions', () => {
-    expect(validateReleaseVersion('v1.3.0', packageJson, packageLock)).toBe(
-      '1.3.0'
-    );
+  test('selects latest for matching package, lockfile and stable tag versions', () => {
+    expect(validateReleaseVersion('v1.3.0', packageJson, packageLock)).toEqual({
+      version: '1.3.0',
+      npmTag: 'latest',
+      prerelease: false
+    });
+  });
+
+  test.each(['1.4.0-rc.0', '1.4.0-rc.1', '1.4.0-rc.12'])(
+    'selects the rc channel and a GitHub prerelease for %s',
+    (version) => {
+      packageJson.version = version;
+      packageLock.version = version;
+      packageLock.packages[''].version = version;
+
+      expect(
+        validateReleaseVersion(`v${version}`, packageJson, packageLock)
+      ).toEqual({ version, npmTag: 'rc', prerelease: true });
+    }
+  );
+
+  test('requires an exact match of the RC number', () => {
+    packageJson.version = '1.4.0-rc.1';
+    packageLock.version = '1.4.0-rc.1';
+    packageLock.packages[''].version = '1.4.0-rc.1';
+
+    expect(() =>
+      validateReleaseVersion('v1.4.0-rc.0', packageJson, packageLock)
+    ).toThrow('package.json (1.4.0-rc.1)');
   });
 
   test.each([
@@ -28,11 +53,19 @@ describe('release versions', () => {
     'v01.3.0',
     'v1.03.0',
     'v1.3.00',
+    'v1.3.0-alpha.1',
     'v1.3.0-beta.1',
-    'v1.3.0+build.1'
+    'v1.3.0+build.1',
+    'v1.3.0-rc',
+    'v1.3.0-rc.',
+    'v1.3.0-rc.-1',
+    'v1.3.0-rc.01',
+    'v1.3.0-rc.1.2',
+    'v1.3.0-RC.1',
+    'v1.3.0-rc.1+build.1'
   ])('rejects unsupported release tag %s', (tag) => {
     expect(() => validateReleaseVersion(tag, packageJson, packageLock)).toThrow(
-      'Expected a stable release tag'
+      'Expected a release tag'
     );
   });
 
@@ -76,10 +109,17 @@ describe('npm publication status', () => {
     npm.mockRestore();
   });
 
-  test('skips an existing exact version', () => {
-    npm.mockReturnValue({ status: 0, stdout: '"1.3.0"', stderr: '' });
-    expect(isVersionPublished('@moysklad/js-widget-sdk', '1.3.0')).toBe(true);
-  });
+  test.each(['1.3.0', '1.4.0-rc.0'])(
+    'skips an existing exact version %s',
+    (version) => {
+      npm.mockReturnValue({
+        status: 0,
+        stdout: JSON.stringify(version),
+        stderr: ''
+      });
+      expect(isVersionPublished('@moysklad/js-widget-sdk', version)).toBe(true);
+    }
+  );
 
   test('allows publishing only when npm reports E404', () => {
     npm.mockReturnValue({
@@ -148,18 +188,22 @@ describe('release validation CLI', () => {
 
   beforeEach(() => {
     directory = mkdtempSync(path.join(tmpdir(), 'sdk-release-test-'));
+    writeVersions('1.3.0');
+  });
+
+  function writeVersions(version) {
     writeFileSync(
       path.join(directory, 'package.json'),
-      JSON.stringify({ version: '1.3.0' })
+      JSON.stringify({ version })
     );
     writeFileSync(
       path.join(directory, 'package-lock.json'),
       JSON.stringify({
-        version: '1.3.0',
-        packages: { '': { version: '1.3.0' } }
+        version,
+        packages: { '': { version } }
       })
     );
-  });
+  }
 
   afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
@@ -176,14 +220,30 @@ describe('release validation CLI', () => {
   test('validates a release before installing dependencies', () => {
     const result = validate('v1.3.0');
     expect(result.status).toBe(0);
-    expect(result.stdout).toBe('1.3.0\n');
+    expect(result.stdout).toBe(
+      'version=1.3.0\nnpm_tag=latest\nprerelease=false\n'
+    );
     expect(result.stderr).toBe('');
   });
 
-  test('returns a failure exit code for a prerelease tag', () => {
+  test.each(['1.4.0-rc.0', '1.4.0-rc.1'])(
+    'outputs the rc publication settings for %s',
+    (version) => {
+      writeVersions(version);
+      const result = validate(`v${version}`);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(
+        `version=${version}\nnpm_tag=rc\nprerelease=true\n`
+      );
+      expect(result.stderr).toBe('');
+    }
+  );
+
+  test('returns a failure exit code for an unsupported prerelease tag', () => {
     const result = validate('v1.3.0-beta.1');
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Expected a stable release tag');
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Expected a release tag');
   });
 
   test('returns a failure exit code for a mismatched lockfile', () => {
@@ -196,6 +256,7 @@ describe('release validation CLI', () => {
     );
     const result = validate('v1.3.0');
     expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
     expect(result.stderr).toContain('packages[""].version (1.2.0)');
   });
 });
